@@ -8,6 +8,8 @@ const { getFirestore } = require('firebase-admin/firestore');
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
+var ffmpeg = require('fluent-ffmpeg');
+const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
@@ -900,6 +902,28 @@ app.post("/v/presign", jsonParser,async function (req, res) {
     }
 });
 
+app.post('/v/ffmpeg', async function(request,response) {
+    let filename = "_unknown-123456789123456.mp4";
+    let imgName = filename.replace(".mp4",".png");
+    let gifName = filename.replace(".mp4",".gif");
+    var proc = new ffmpeg('processed/' + filename)
+        .screenshots({
+            count: 1,
+            folder: 'processed',
+            filename: imgName,
+            timemarks: [ '3' ] // number of seconds
+        }).on('end', function() {
+            console.log('finished !');
+            console.log("Here we go..");
+            var imgbbUploader = require('imgbb-uploader');
+
+            imgbbUploader("1609ad5c658c52faf7d11488e5f83c11", "processed/" + imgName)
+                .then(response => console.log(response.url))
+                .catch(error => console.error(1))
+        });
+
+    response.json({ret:1});
+});
 
 app.put('/v/add', jsonParser,async function (request, response) {
     // let token = request.headers["x-access-token"];
