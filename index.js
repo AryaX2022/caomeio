@@ -8,6 +8,9 @@ const { getFirestore } = require('firebase-admin/firestore');
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
+const fs = require('fs');
+const path = require('path');
+
 const s3Client = new S3Client({
     credentials: {
         accessKeyId: "jxxpimx7rapd6eg6rqgimfmvh6za",
@@ -152,7 +155,7 @@ app.get('/productsHome', async function(req, res) {
   
 });
 
-// const fs = require('fs')
+
 // let imglist = []
 // app.get('/check', async function(req, res) {
 //     const models = await db.collection(tname).get();
@@ -236,34 +239,6 @@ app.get('/rating/:id', async function(req, res) {
     const result = await modelRef.update({"stats.ratingCount": FieldValue.increment(1), "stats.rating":newrating});
 
     res.json({ret:newrating});
-});
-
-app.post('/auth/signin', jsonParser, async function (request, response) {
-
-    console.log(request.body);
-    const userRef = db.collection('musers');
-    const snapshot = await userRef.where('username', '==', request.body.username).where('password', '==', request.body.password).get();
-    if (snapshot.empty) {
-        console.log('No user match.');
-        response.json({ret:1, message:'用户名或密码不正确'});
-    } else {
-
-        var token = jwt.sign({ id: request.body.username }, secret);
-
-        snapshot.forEach(doc => {
-            let user = doc.data();
-            user.accessToken = token;
-            response.json({ret:0, user: user});
-        });
-    }
-});
-
-app.post('/auth/signup', jsonParser, async function (request, response) {
-    console.log(request.body);
-    request.body.createtime = new Date();
-    // Add a new document in collection "cities" with ID 'LA'
-    const res = await db.collection('musers').doc(request.body.username).set(request.body);
-    response.json({data:{message:'注册成功'}});
 });
 
 app.get('/user', async function (request, response) {
@@ -410,6 +385,492 @@ app.get('/model/comments/:id', async function(req, res) {
     res.json({item:model.data()});
 });
 
+
+
+app.post("/v/try2geturl", jsonParser, async function (request,response){
+    const params = {
+        Bucket: 'caomeio',
+        Key: request.body.key
+    }
+
+    let command = new GetObjectCommand(params);
+    const url = await getSignedUrl(s3Client, command);
+    console.log(url);
+    response.json({ret:url});
+})
+
+
+
+function getCurrentPid() {
+    try {
+        const pid = fs.readFileSync('pid.txt','utf8');
+        return pid;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function setCurrentPid(pid) {
+    try {
+        //fs.writeFileSync('next.txt',next)
+        fs.writeFileSync('pid.txt',pid)
+    } catch (e) {
+        console.error(e);
+    }
+
+}
+
+function getFilesSortedByModifiedDate(directoryPath) {
+    const files = fs.readdirSync(directoryPath);
+
+    const fileStats = files.map((file) => {
+        const filePath = `${directoryPath}/${file}`;
+        const stat = fs.statSync(filePath);
+        return { file, mtime: stat.mtimeMs };
+    });
+
+    fileStats.sort((a, b) => a.mtime - b.mtime);
+
+    return fileStats.map((fileStat) => fileStat.file);
+}
+
+async function getMediasFromLocal(dir) {
+
+    const filenames = getFilesSortedByModifiedDate(dir);
+
+    for (const file of filenames) {
+        let n = getCurrentPid();
+        //console.log(n);
+        let pid = Number(n);
+        let data = {filename: file, pid: pid, createtime: new Date()}
+        console.log(data);
+        const res = await db.collection('vitems').add(data);
+        pid = pid + 1;
+        setCurrentPid(pid.toString());
+    }
+
+}
+
+app.post('/v/deleteField', async function (request, response) {
+    const items = await db.collection('vitems').get();
+    items.forEach(item => {
+        const doc = db.collection('vitems').doc(item.id);
+
+        doc.update({next:FieldValue.delete()});
+    })
+    console.log("Done");
+    response.json({ret:1});
+})
+
+
+//*************************************************
+// ***        特别注意    **************************
+// ***   pid 的值： 本地 与 远程 保持一致  ************
+//*************************************************
+//遍历本地文件夹中已处理好的文件，将文件信息保存到数据库
+//next.txt pid.txt 需要部署发布到生产环境。 且，需要将生产环境中的这两个文件，同步到本地环境。
+app.post('/v/getFromLocalAndSave2Db', jsonParser, async function (request, response) {
+    //输入参数：本地mp4文件夹路径
+    getMediasFromLocal('I:\\Outputs\\ready');
+    console.log("Done");
+    response.json({ret:1});
+})
+
+//设置标签
+app.post('/v/setags', jsonParser, async function(req, res) {
+    console.log(req.body.ids);
+
+    req.body.tags.forEach(t => {
+        tagObjects[t] = []
+    });
+
+    for (const id of req.body.ids) {
+        console.log(id);
+        const docRef = db.collection('vitems').doc(id);
+
+        const doc = await docRef.get();
+        let tags = []
+        if(doc.data().tags != null) {
+            tags = doc.data().tags;
+        }
+        req.body.tags.forEach(t => {
+            if(!tags.includes(t)) {
+                tags.push(t);
+            }
+        });
+
+        const result = await docRef.set({tags: tags},{merge:true});
+    }
+
+    res.json({ret:1});
+});
+
+//设置作者
+app.post('/v/setuploader', jsonParser, async function(req, res) {
+    console.log(req.body.ids);
+    const userDoc = await db.collection('vusers').doc(req.body.uploader).get();
+    const user = userDoc.data();
+
+    for (const key of req.body.ids) {
+        console.log(key);
+        const docRef = db.collection('vitems').doc(key);
+        let nickname = user.nickname != undefined ? user.nickname : "";
+        const result = await docRef.set({uploader: {avatar:user.avatar,username:user.username, nickname:nickname }},{merge:true});
+    }
+
+    res.json({ret:1});
+});
+
+//设置coin
+app.post('/v/setcoin', jsonParser, async function(req, res) {
+    console.log(req.body.keys);
+    for (const key of req.body.keys) {
+        console.log(key);
+        const docRef = db.collection('vitems').doc(key);
+        const result = await docRef.set({coin: req.body.coin},{merge:true});
+    }
+
+    res.json({ret:1});
+});
+
+//设置精华
+app.post('/v/setbest', jsonParser, async function(req, res) {
+    console.log(req.body.keys);
+    for (const key of req.body.keys) {
+        console.log(key);
+        const docRef = db.collection('vitems').doc(key);
+        const result = await docRef.set({isbest: req.body.flag},{merge:true});
+    }
+
+    res.json({ret:1});
+});
+
+
+// ******* 构建轻量级缓存 ************
+
+var snakeItems = []
+var hotItems = []
+var sexItems = []
+var freshItems = []
+var bestItems = []
+var sayesItems = []
+var lightItems = []
+var attrItems = []
+
+let tagObjects = {
+    "snake": snakeItems,
+    "hot": hotItems,
+    "sexy": sexItems,
+    "fresh": freshItems,
+    "best": bestItems,
+    "sayes": sayesItems,
+    "light": lightItems,
+    "attr": attrItems,
+}
+
+var mediaUrlItems = {}
+
+// ******* 构建轻量级缓存 ************
+
+
+//根据tag获取，可缓存
+app.post("/v/getMediaByTag", jsonParser, async function(request, response) {
+
+    console.log(request.body.tag);
+    //console.log(tagObjects["hot"]);
+
+    if(tagObjects[request.body.tag].length == 0) {
+        console.log("Fetch from DB");
+        const vitems = await db.collection('vitems').where('tags', 'array-contains',request.body.tag).orderBy("createtime","desc").get();
+        vitems.forEach(doc => {
+            let data = doc.data();
+            data.id = doc.id;
+            tagObjects[request.body.tag].push(data);
+        })
+    }
+    response.json(tagObjects[request.body.tag]);
+})
+
+async function findUrlByKey(key, expire) {
+    const params = {
+        Bucket: 'caomeio',
+        Key: key
+    }
+
+    let command = new GetObjectCommand(params);
+    const url = await getSignedUrl(s3Client, command, {expiresIn: expire});
+    return url;
+}
+
+//根据id获取doc，同时查询url
+app.post("/v/getMediaById", jsonParser, async function(request,response){
+
+    const doc = await db.collection('vitems').doc(request.body.id).get();
+    //console.log(doc.data());
+    data = doc.data();
+    data.id = doc.id;
+
+    let mediaUrl = '';
+    if(mediaUrlItems.hasOwnProperty(data.filename) && mediaUrlItems[data.filename]['expire'] > new Date()) {
+        //console.log("直接获取....")
+        //console.log(mediaUrlItems[request.body.key]['expire']);
+        mediaUrl = mediaUrlItems[data.filename]['url'];
+    } else {
+        //console.log("no");
+
+        const url =  await findUrlByKey(data.filename, 3600*24*7);
+
+        var date = new Date();
+        date.setDate(date.getDate() + 7);
+        mediaUrlItems[data.filename] = {expire:date, url:url}
+
+        mediaUrl = url;
+    }
+
+    console.log(mediaUrl);
+
+    data.mediaUrl = mediaUrl;
+    data.downloadUrl = await findUrlByKey(data.filename.replace('_','@'), 900);
+    response.json(data);
+})
+
+app.post("/v/download", jsonParser, async function (request,response){
+    request.body.filename = request.body.filename.replace('_','@');
+    console.log(request.body.filename);
+    const params = {
+        Bucket: 'caomeio',
+        Key: request.body.filename
+    }
+
+    let command = new GetObjectCommand(params);
+    const url = await getSignedUrl(s3Client, command);
+    console.log(url);
+
+    response.json({ret:url});
+})
+
+//分页查询
+app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
+    let currentPid = getCurrentPid();
+    let pageIndex = request.body.pageIndex;
+    let start = currentPid - (pageIndex-1)*20;
+    let end = start - 20;
+
+    console.log(start);
+    console.log(end);
+    const vitems = await db.collection('vitems')
+        .orderBy('pid','desc')
+        .startAt(start)
+        .endBefore(end)
+        .get();
+    let ret = [];
+    vitems.forEach(doc => {
+        let data = doc.data();
+        data.id = doc.id;
+        ret.push(data);
+    })
+    response.json(ret);
+})
+
+
+async function getMediaUrlFromBucketAndSave2Db(bucket, key) {
+    const params = {
+        Bucket: bucket,
+        Key: key
+    }
+
+    let command = new GetObjectCommand(params);
+    const url = await getSignedUrl(s3Client, command);
+    console.log(url);
+
+    //Now save this url into db
+    //No need to save url? Just parse it in realtime?
+    //await db.collection('items').add({filename:key, defaultUrl:url, createtime:new Date()});
+}
+
+//遍历，bucket中的object
+app.post('/v/listFromBucket', jsonParser, async function (request, response)  {
+    let bucket = 'caomeio'
+
+    const command = new ListObjectsV2Command({
+        Bucket: bucket,
+        // The default and maximum number of keys returned is 1000. This limits it to
+        // one for demonstration purposes.
+        MaxKeys: 100,
+    });
+
+    let count = 0;
+
+    try {
+        let isTruncated = true;
+
+        //console.log("Your bucket contains the following objects:\n")
+        let contents = "";
+
+        //返回所有的，每次返回最多100
+        while (isTruncated) {
+            const { Contents, IsTruncated, NextContinuationToken } = await s3Client.send(command);
+
+            for (const item of Contents) {
+                //await getMediaUrlFromBucketAndSave2Db(bucket, item.Key);
+                //统计bucket中文件个数
+                count++;
+            }
+
+            //const contentsList = Contents.map((c) => ` • ${c.Key}`).join("\n");
+            //contents += contentsList + "\n";
+            isTruncated = IsTruncated;
+            command.input.ContinuationToken = NextContinuationToken;
+        }
+        console.log(contents);
+
+    } catch (err) {
+        console.error(err);
+    }
+
+    response.json({"Count of Keys":count});
+})
+
+//删除bucket中所有的object
+app.post('/v/deleteAllFromBucket', jsonParser, async function (request, response)  {
+    let count = 0
+
+    filenames = fs.readdirSync('I:\\Outputs\\Locker\\nomark_made\\orig');
+    for (const file of filenames) {
+        let count = 0
+        console.log(file);
+
+        const params = {
+            Bucket: 'caomeio',
+            Key: file
+        }
+
+        let commandDel = new DeleteObjectCommand(params);
+        await s3Client.send(commandDel);
+        console.log("Del done");
+
+        count++;
+    }
+
+    response.json({"Count of Keys":count});
+})
+
+//更新一些项目的pid，与最新的pid互换，这样在分页中显示靠前
+app.post('/v/updatePid', jsonParser, async function (request, response)  {
+    let count = 0
+    //let currentMaxPid = getCurrentPid();
+    topPids = request.body.topPids;
+    topIds = request.body.topIds;
+    normalPids = request.body.normalPids;
+    normalIds = request.body.normalIds;
+    //upgrade: normal -> top
+    for (const id of normalIds) {
+        const itemRef = db.collection('vitems').doc(id);
+        const topItemRef = db.collection('vitems').doc(topIds[count]);
+        await itemRef.update('pid', topPids[count]);
+        await topItemRef.update('pid', normalPids[count]);
+        count++;
+    }
+    console.log("Done");
+
+    response.json({"Count:":count});
+})
+
+
+//新评论
+app.post('/v/newcomments', jsonParser, async function(request, response) {
+    const itemRef = db.collection('vitems').doc(request.body.id);
+    const item = await itemRef.get();
+    let comments = []
+    if(item.data().comments != null) {
+        comments = item.data().comments;
+    }
+    let date = new Date();
+    comments.push({userId:request.body.userId, userName: request.body.userName, comments: request.body.comments, createtime: date});
+    const result = await itemRef.set({"comments": comments},{merge:true});
+
+    const userRef = db.collection('vusers').doc(request.body.userId);
+    const user = await userRef.get();
+    let commentsOfUser = []
+    if(user.data().comments != null) {
+        commentsOfUser = user.data().comments;
+    }
+    commentsOfUser.push({itemId: request.body.itemId, comments: request.body.comments, createtime: date});
+    const resultOfUser = await userRef.set({"comments": commentsOfUser},{merge:true});
+
+    res.json({ret:resultOfUser});
+});
+
+//收藏
+app.post('/v/newcollect', jsonParser, async function(request, response) {
+    const itemRef = db.collection('vitems').doc(request.body.id);
+    const item = await itemRef.get();
+    const result = await itemRef.update({"stats.favorite": FieldValue.increment(1)});
+
+    const userRef = db.collection('vusers').doc(request.body.username);
+    const user = await userRef.get();
+    let favoritesOfUser = []
+    if(user.data().favorites != undefined) {
+        favoritesOfUser = user.data().favorites;
+    }
+    if(favoritesOfUser.filter(i => i.itemId == item.id).length == 0) {
+        favoritesOfUser.push({itemId: item.id, itemFilename: item.data().filename, createtime: new Date()});
+        const resultOfUser = await userRef.set({"favorites": favoritesOfUser},{merge:true});
+    }
+
+    response.json({ret:1});
+});
+
+
+
+app.post('/auth/signin', jsonParser, async function (request, response) {
+
+    console.log(request.body);
+    const userRef = db.collection('vusers');
+    const snapshot = await userRef.where('username', '==', request.body.username).where('password', '==', request.body.password).get();
+    if (snapshot.empty) {
+        console.log('No user match.');
+        response.json({ret:1, message:'用户名或密码不正确'});
+    } else {
+
+        var token = jwt.sign({ id: request.body.username }, secret);
+
+        snapshot.forEach(doc => {
+            let user = doc.data();
+            user.accessToken = token;
+            response.json({ret:0, user: user});
+        });
+    }
+});
+
+app.post('/auth/signup', jsonParser, async function (request, response) {
+    console.log(request.body);
+    request.body.createtime = new Date();
+    const res = await db.collection('vusers').doc(request.body.username).set(request.body);
+    response.json({data:{message:'注册成功'}});
+});
+
+app.post('/v/userdetail', jsonParser, async function (request, response)  {
+    //TODO: 验证
+
+    //let currentMaxPid = getCurrentPid();
+    const userDoc = await db.collection('vusers').doc(request.body.username).get();
+
+    response.json(userDoc.data());
+})
+
+app.post('/v/userupdate', jsonParser, async function (request, response)  {
+    //TODO: 验证
+
+    //let currentMaxPid = getCurrentPid();
+    const userRef = db.collection('vusers').doc(request.body.username);
+    request.body.updatetime = new Date();
+    await userRef.set(request.body,{merge:true});
+
+    response.json({"ret:":1});
+})
+
+
 //获取presign url: 用户上传文件时, 随机生成filename，文件不会存在。管理员上传时，批量操作，如果第一次没有上传成功，可重复执行。
 app.post("/v/presign", jsonParser,async function (req, res) {
     try {
@@ -428,7 +889,7 @@ app.post("/v/presign", jsonParser,async function (req, res) {
             console.log("Object does not exist");
             let commandPut = new PutObjectCommand(params);
             const signedUrl = await getSignedUrl(s3Client, commandPut, {
-               expiresIn: 600,
+                expiresIn: 600,
             });
             console.log(signedUrl);
             res.json({ ret: signedUrl });
@@ -469,193 +930,28 @@ app.put('/v/add', jsonParser,async function (request, response) {
     // console.log(url);
     // request.body.defaultVideoUrl = url;
 
-    let next = getNextMedia();
-    request.body.next = next;
+    let n = getCurrentPid();
+    let pid = Number(n)
+    request.body.pid = pid;
 
     request.body.createtime = new Date();
     const res = await db.collection('vitems').add(request.body);
-    setNextMedia(request.body.filename);
+    console.log(res.id);
+    pid = pid + 1;
+    setCurrentPid(pid.toString());
+
+    const userRef = db.collection('vusers').doc(request.body.uploader.username);
+    const user = await userRef.get();
+    let ownedOfUser = []
+    if(user.data().owned != undefined) {
+        ownedOfUser = user.data().owned;
+    }
+    if(ownedOfUser.filter(i => i.itemId == res.id).length == 0) {
+        ownedOfUser.push({itemId: res.id, itemFilename: request.body.filename, createtime: request.body.createtime});
+        const resultOfUser = await userRef.set({"owned": ownedOfUser},{merge:true});
+    }
 
     response.json({ret:res.id});
 });
-
-app.post("/v/try2geturl", jsonParser, async function (request,response){
-    const params = {
-        Bucket: 'caomeio',
-        Key: request.body.key
-    }
-
-    let command = new GetObjectCommand(params);
-    const url = await getSignedUrl(s3Client, command);
-    console.log(url);
-    response.json({ret:url});
-})
-
-
-const fs = require('fs')
-
-function getPid() {
-    try {
-        const pid = fs.readFileSync('pid.txt');
-        return pid;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function getNextMedia() {
-    try {
-        const filename = fs.readFileSync('next.txt','utf8');
-        const pid = fs.readFileSync('pid.txt','utf8');
-        console.log(filename);
-        return [filename,pid];
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function setNextMedia(nextFilename, pid) {
-    try {
-        fs.writeFileSync('next.txt',nextFilename)
-        fs.writeFileSync('pid.txt',pid)
-    } catch (e) {
-        console.error(e);
-    }
-
-}
-
-function getMediasFromLocal(dir) {
-    //const dir = '';
-    filenames = fs.readdirSync(dir);
-    filenames.forEach(file => {
-        let n = getNextMedia();
-        //console.log(n);
-        let pid = Number(n[1]);
-        let data = {filename:file, next:n[0], pid:pid, createtime:new Date()}
-        console.log(data);
-        const res = db.collection('vitems').add(data);
-        pid = pid + 1;
-        setNextMedia(file,pid.toString());
-    });
-
-}
-
-//*************************************************
-// ***        特别注意    **************************
-// ***   pid 的值： 本地 与 远程 保持一致  ************
-//*************************************************
-//遍历本地文件夹中已处理好的文件，将文件信息保存到数据库
-//next.txt pid.txt 需要部署发布到生产环境。 且，需要将生产环境中的这两个文件，同步到本地环境。
-app.post('/v/getFromLocalAndSave2Db', jsonParser, async function (request, response) {
-    //输入参数：本地mp4文件夹路径
-    getMediasFromLocal('I:\\Outputs\\Locker\\nomark_made\\done');
-    response.json({ret:1});
-})
-
-//分页查询
-app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
-    let currentPid = getPid();
-    let pageIndex = request.body.pageIndex;
-    let start = currentPid - (pageIndex-1)*20;
-    let end = start - 20;
-
-    console.log(start);
-    console.log(end);
-    const vitems = await db.collection('vitems')
-        .orderBy('pid','desc')
-        .startAt(start)
-        .endBefore(end)
-        .get();
-    let ret = [];
-    vitems.forEach(doc => {
-        ret.push(doc.data());
-    })
-    response.json(ret);
-})
-
-
-async function getMediaUrlFromBucketAndSave2Db(bucket, key) {
-    const params = {
-        Bucket: bucket,
-        Key: key
-    }
-
-    let command = new GetObjectCommand(params);
-    const url = await getSignedUrl(s3Client, command);
-    console.log(url);
-
-    //Now save this url into db
-    //No need to save url? Just parse it in realtime?
-    //await db.collection('items').add({filename:key, defaultUrl:url, createtime:new Date()});
-}
-
-//遍历，bucket中的object
-app.post('/v/listFromBucket', jsonParser, async function (request, response)  {
-    let bucket = 'caomeio'
-
-    const command = new ListObjectsV2Command({
-        Bucket: bucket,
-        // The default and maximum number of keys returned is 1000. This limits it to
-        // one for demonstration purposes.
-        MaxKeys: 100,
-    });
-
-    let count = 0;
-
-    try {
-        let isTruncated = true;
-
-        //console.log("Your bucket contains the following objects:\n")
-        //let contents = "";
-
-        //返回所有的，每次返回最多100
-        while (isTruncated) {
-            const { Contents, IsTruncated, NextContinuationToken } = await s3Client.send(command);
-
-            for (const item of Contents) {
-                //await getMediaUrlFromBucketAndSave2Db(bucket, item.Key);
-                //统计bucket中文件个数
-                count++;
-            }
-
-            // const contentsList = Contents.map((c) => ` • ${c.Key}`).join("\n");
-            // contents += contentsList + "\n";
-            isTruncated = IsTruncated;
-            command.input.ContinuationToken = NextContinuationToken;
-        }
-        //console.log(contents);
-
-    } catch (err) {
-        console.error(err);
-    }
-
-    response.json({"Count of Keys":count});
-})
-
-//删除bucket中所有的object
-app.post('/v/deleteAllFromBucket', jsonParser, async function (request, response)  {
-    let count = 0
-
-    filenames = fs.readdirSync('I:\\Outputs\\Locker\\nomark_made\\orig');
-    for (const file of filenames) {
-        let count = 0
-        console.log(file);
-
-        const params = {
-            Bucket: 'caomeio',
-            Key: file
-        }
-
-        let commandDel = new DeleteObjectCommand(params);
-        await s3Client.send(commandDel);
-        console.log("Del done");
-
-        count++;
-
-    }
-
-
-    response.json({"Count of Keys":count});
-})
 
 app.listen(3001, () => console.log(('listening :)')))
