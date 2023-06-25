@@ -8,6 +8,18 @@ const { getFirestore } = require('firebase-admin/firestore');
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
+
+const multer = require("multer");
+var storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/')
+    },
+    filename: function (req, file, cb) {
+        cb(null, file.originalname)
+    }
+})
+const upload = multer({ storage: storage });
+
 var ffmpeg = require('fluent-ffmpeg');
 const axios = require('axios');
 const fs = require('fs');
@@ -158,43 +170,6 @@ app.get('/productsHome', async function(req, res) {
 });
 
 
-// let imglist = []
-// app.get('/check', async function(req, res) {
-//     const models = await db.collection(tname).get();
-//     //console.log(models);
-//     var file = fs.createWriteStream('array.txt');
-//     models.forEach((doc) => {
-//         let item = doc.data();
-//
-//         //console.log(item.id);
-//
-//         for (var j = 0, lenVer = item.modelVersions.length; j < lenVer; j++) {
-//
-//             for (var k = 0, lenImgs = item.modelVersions[j].images.length; k < lenImgs; k++) {
-//                 //console.log(item.modelVersions[j].images[k].url);
-//                 let img = item.modelVersions[j].images[k];
-//
-//                 // const path = 'H:\\GitProject\\vue3\\model4ai\\src\\assets\\images\\' + img.url;
-//                 //
-//                 // try {
-//                 //     if (!fs.existsSync(path)) {
-//                 //         //imglist.push(img.url);
-//                 //         file.write(`${img.url}\n`)
-//                 //         //console.log(""+img.url+"',");
-//                 //     }
-//                 // } catch(err) {
-//                 //     console.error(err)
-//                 // }
-//             }
-//         }
-//
-//
-//     });
-//     file.end();
-//     //console.log(imglist);
-// });
-//
-
 app.get('/products', async function(req, res) {
 
     const models = await db.collection(tname).get();
@@ -289,16 +264,6 @@ app.post('/user/profile',jsonParser, async function(request,response) {
     response.json({ret:0});
 });
 
-// const multer = require("multer");
-// const dest = multer({ dest: "files/" });
-// function uploadFiles(req, res) {
-//     console.log(req);
-//     console.log(req.files);
-//     console.log(req.body);
-//     res.json({ret: req.files});
-// }
-//
-// app.post("/upload", dest.array("image"), uploadFiles);
 
 app.post('/post/new', jsonParser,async function (request, response) {
     let token = request.headers["x-access-token"];
@@ -387,8 +352,6 @@ app.get('/model/comments/:id', async function(req, res) {
     res.json({item:model.data()});
 });
 
-
-
 app.post("/v/try2geturl", jsonParser, async function (request,response){
     const params = {
         Bucket: 'caomeio',
@@ -401,24 +364,31 @@ app.post("/v/try2geturl", jsonParser, async function (request,response){
     response.json({ret:url});
 })
 
+async function getCurrentPid() {
+    const doc = await db.collection('vpid').doc("current").get();
+    //const docRef = db.collection('vpid').doc("current");
+    const data = doc.data();
+    console.log(data);
+    return data.pid;
 
-
-function getCurrentPid() {
-    try {
-        const pid = fs.readFileSync('pid.txt','utf8');
-        return pid;
-    } catch (e) {
-        console.error(e);
-    }
+    // try {
+    //     const pid = fs.readFileSync('pid.txt', 'utf8');
+    //     return pid;
+    // } catch (e) {
+    //     console.error(e);
+    // }
 }
 
-function setCurrentPid(pid) {
-    try {
-        //fs.writeFileSync('next.txt',next)
-        fs.writeFileSync('pid.txt',pid)
-    } catch (e) {
-        console.error(e);
-    }
+async function setCurrentPid() {
+    const docRef = db.collection('vpid').doc("current");
+    await docRef.update({"pid": FieldValue.increment(1)});
+
+    // try {
+    //     //fs.writeFileSync('next.txt',next)
+    //     fs.writeFileSync('pid.txt', pid)
+    // } catch (e) {
+    //     console.error(e);
+    // }
 
 }
 
@@ -441,14 +411,13 @@ async function getMediasFromLocal(dir) {
     const filenames = getFilesSortedByModifiedDate(dir);
 
     for (const file of filenames) {
-        let n = getCurrentPid();
         //console.log(n);
-        let pid = Number(n);
+        let pid = await getCurrentPid();
         let data = {filename: file, pid: pid, createtime: new Date()}
         console.log(data);
         const res = await db.collection('vitems').add(data);
-        pid = pid + 1;
-        setCurrentPid(pid.toString());
+        //pid = pid + 1;
+        setCurrentPid();
     }
 
 }
@@ -476,6 +445,142 @@ app.post('/v/getFromLocalAndSave2Db', jsonParser, async function (request, respo
     getMediasFromLocal('I:\\Outputs\\ready');
     console.log("Done");
     response.json({ret:1});
+})
+
+
+async function addcomments2db(id, username, nickname, avatar, date, comment) {
+    const res = await db.collection('vcomments').add({
+        itemId: id,
+        username: username,
+        nickname: nickname,
+        avatar: avatar,
+        createtime: date,
+        comment: comment
+    });
+}
+
+
+let normal = ["😛","😍","😋","😻","🤪"];
+let hot = ["漂亮!", "NICE", "🔥🔥🔥🔥🔥", "受不了了", "建议将声音拉满哦，效果爆表😀", "我喜欢", "我的菜"];
+let sexy = ["我喜欢", "不错", "这...😛😛", "我的菜", "这谁受的了哦", "ying了ying了", "可以", "漂亮", "很好", "够大😛😛😛"];
+let sayes = ["受不了了", "Amazing", "WOW", "NICE", "快..给我箱卫生纸", "一个字就是干", "ying了ying了", "大家不要笑我，我直接把飞机打下来了😜", "大家把音量拉满试试效果😛😛", "大家排好队啊，一个一个来，不要插队","漂亮", "很好", "我喜欢", "我有一个大胆的想法...😆😆😆", "必须把音量拉满🔥🔥🔥"];
+let snake = ["WOW", "NICE", "我喜欢", "不错", "😍😍😍", "我的菜", "当pao架子应该挺不错的"]
+let fresh = ["养眼😍😍😍", "大家不要抢，这个归我啦", "我的菜", "妹子不错", "我喜欢", "我的菜", "漂亮", "很好", "Good"]
+let light = ["跳得不错哦", "跳得不赖😍😍", "音量加大感觉更棒😀", "就是这个调调", "喜欢", "妹子不错"]
+let attr = ["受不了了", "WOW", "一个字就是干", "ying了ying了", "够骚😁😁", "骚劲十足，我喜欢😁😁😍😍"];
+
+async function comment4item(id, tags) {
+
+    let r_normal = normal[Math.floor(Math.random() * normal.length)];
+    let r_hot = hot[Math.floor(Math.random() * hot.length)];
+    let r_sexy = sexy[Math.floor(Math.random() * sexy.length)];
+    let r_snake = snake[Math.floor(Math.random() * snake.length)];
+    let r_fresh = fresh[Math.floor(Math.random() * fresh.length)];
+    let r_light = light[Math.floor(Math.random() * light.length)];
+    let r_attr = attr[Math.floor(Math.random() * attr.length)];
+    let r_sayes = sayes[Math.floor(Math.random() * sayes.length)];
+
+    function sub() {
+        let sub = Math.floor(Math.random() * 10) > 7 ? normal[Math.floor(Math.random() * normal.length)] : "";
+        for(let i = 0; i < Math.floor(Math.random() * 4); i++) {
+            sub = sub + sub;
+        }
+        return sub;
+    }
+    //console.log(sub);
+
+    function nor() {
+        let ret = "";
+        let restr = normal[Math.floor(Math.random() * normal.length)];
+        let start = Math.floor(Math.random() * 10) + 5;
+        let end = Math.floor(Math.random() * 35) + start;
+        for(let i = start; i <= end; i++) {
+            ret = ret + restr;
+        }
+        return ret;
+    }
+
+    function randomDate(start, end, startHour, endHour) {
+        var date = new Date(+start + Math.random() * (end - start));
+        var hour = startHour + Math.random() * (endHour - startHour) | 0;
+        date.setHours(hour);
+        return date;
+    }
+
+    async function getRaduser() {
+        let num = Math.floor(Math.random() * 100);
+        let key = 'u' + num.toString();
+        const userDoc = await db.collection("vusers").doc(key).get();
+        return userDoc.data();
+    }
+
+    //console.log(nor());
+    if(tags.includes("light")) {
+        //console.log(r_light+sub());
+        let raduser = await getRaduser();
+        let createtime = randomDate( new Date(2023,2,10), new Date(2023,5,29), 0, 24 );
+        addcomments2db(id, raduser.username, raduser.nickname, raduser.avatar, createtime, r_light+sub());
+    }
+    if(tags.includes("fresh")) {
+        //console.log(r_fresh+sub());
+        let raduser = await getRaduser();
+        let createtime = randomDate( new Date(2023,2,10), new Date(2023,5,29), 0, 24 );
+        addcomments2db(id, raduser.username, raduser.nickname, raduser.avatar, createtime, r_fresh+sub());
+    }
+    if(tags.includes("sexy")) {
+        //console.log(r_sexy+sub());
+        let raduser = await getRaduser();
+        let createtime = randomDate( new Date(2023,2,10), new Date(2023,5,29), 0, 24 );
+        addcomments2db(id, raduser.username, raduser.nickname, raduser.avatar, createtime, r_sexy+sub());
+    }
+    if(tags.includes("attr")) {
+        //console.log(r_attr+sub());
+        let raduser = await getRaduser();
+        let createtime = randomDate( new Date(2023,2,10), new Date(2023,5,29), 0, 24 );
+        addcomments2db(id, raduser.username, raduser.nickname, raduser.avatar, createtime, r_attr+sub());
+    }
+    if(tags.includes("hot")) {
+        //console.log(r_hot+sub());
+        let raduser = await getRaduser();
+        let createtime = randomDate( new Date(2023,2,10), new Date(2023,5,29), 0, 24 );
+        addcomments2db(id, raduser.username, raduser.nickname, raduser.avatar, createtime, r_hot+sub());
+    }
+    if(tags.includes("snake")) {
+        //console.log(r_snake+sub());
+        let raduser = await getRaduser();
+        let createtime = randomDate( new Date(2023,2,10), new Date(2023,5,29), 0, 24 );
+        addcomments2db(id, raduser.username, raduser.nickname, raduser.avatar, createtime, r_snake+sub());
+    }
+    console.log(nor());
+    let raduser = await getRaduser();
+    let createtime = randomDate( new Date(2023,2,10), new Date(2023,5,29), 0, 24 );
+    addcomments2db(id, raduser.username, raduser.nickname, raduser.avatar, createtime, nor());
+
+    if(tags.includes("sayes")) {
+        //console.log(r_sayes+sub());
+        let raduser = await getRaduser();
+        let createtime = randomDate( new Date(2023,2,10), new Date(2023,5,29), 0, 24 );
+        addcomments2db(id, raduser.username, raduser.nickname, raduser.avatar, createtime, r_sayes+sub());
+    }
+}
+
+app.post('/v/autocomment', jsonParser, async function(req, res) {
+
+    // let id = req.body.id;
+    // let tags = req.body.tags;
+    let count = 0;
+
+    const itemsDoc = await db.collection("vitems").get();
+    itemsDoc.forEach(doc =>  {
+        if(doc.data().tags != undefined) {
+            comment4item(doc.id, doc.data().tags);
+            count++;
+            console.log(count);
+        }
+    });
+
+    res.json({ret:1});
+
 })
 
 //设置标签
@@ -585,6 +690,7 @@ app.post("/v/getMediaByTag", jsonParser, async function(request, response) {
         console.log("Fetch from DB");
         const vitems = await db.collection('vitems').where('tags', 'array-contains',request.body.tag).orderBy("createtime","desc").get();
         vitems.forEach(doc => {
+            //如果不是管理员，跳过status为0的。TODO
             let data = doc.data();
             data.id = doc.id;
             tagObjects[request.body.tag].push(data);
@@ -610,33 +716,46 @@ app.post("/v/getMediaById", jsonParser, async function(request,response){
     const doc = await db.collection('vitems').doc(request.body.id).get();
     //console.log(doc.data());
     data = doc.data();
-    data.id = doc.id;
+    //console.log(data);
+    if(data != undefined) {
 
-    let mediaUrl = '';
-    if(mediaUrlItems.hasOwnProperty(data.filename) && mediaUrlItems[data.filename]['expire'] > new Date()) {
-        //console.log("直接获取....")
-        //console.log(mediaUrlItems[request.body.key]['expire']);
-        mediaUrl = mediaUrlItems[data.filename]['url'];
-    } else {
-        //console.log("no");
+        data.id = doc.id;
 
-        const url =  await findUrlByKey(data.filename, 3600*24*7);
+        data.vcomments = [];
+        const comments = await db.collection('vcomments').where("itemId","==", data.id).orderBy("createtime","desc").get();
+        comments.forEach(c => {
+            data.vcomments.push(c.data());
+        });
 
-        var date = new Date();
-        date.setDate(date.getDate() + 7);
-        mediaUrlItems[data.filename] = {expire:date, url:url}
+        let mediaUrl = '';
+        if(mediaUrlItems.hasOwnProperty(data.filename) && mediaUrlItems[data.filename]['expire'] > new Date()) {
+            //console.log("直接获取....")
+            //console.log(mediaUrlItems[request.body.key]['expire']);
+            mediaUrl = mediaUrlItems[data.filename]['url'];
+        } else {
+            //console.log("no");
 
-        mediaUrl = url;
+            const url =  await findUrlByKey(data.filename, 3600*24*7);
+
+            var date = new Date();
+            date.setDate(date.getDate() + 7);
+            mediaUrlItems[data.filename] = {expire:date, url:url}
+
+            mediaUrl = url;
+        }
+
+        console.log(mediaUrl);
+
+        data.mediaUrl = mediaUrl;
+        data.downloadUrl = await findUrlByKey(data.filename.replace('_','@'), 900);
+        if(data.price != undefined) {
+            data.presecondsUrl = await findUrlByKey(data.filename.replace("_","_p_"), 900);
+        }
     }
-
-    console.log(mediaUrl);
-
-    data.mediaUrl = mediaUrl;
-    data.downloadUrl = await findUrlByKey(data.filename.replace('_','@'), 900);
     response.json(data);
 })
 
-app.post("/v/download", jsonParser, async function (request,response){
+app.post("/v/download", jsonParser, async function(request,response){
     request.body.filename = request.body.filename.replace('_','@');
     console.log(request.body.filename);
     const params = {
@@ -651,9 +770,38 @@ app.post("/v/download", jsonParser, async function (request,response){
     response.json({ret:url});
 })
 
+function isAdmin(request) {
+    let token = request.headers["x-access-token"];
+
+    if (!token) {
+        return false;
+    }
+
+    return jwt.verify(token, secret, (err, decoded) => {
+        if (err) {
+            return false;
+        }
+        console.log("decoded.id:");
+        console.log(decoded.id);
+        if(decoded.id === "admin") {
+            console.log("yes");
+            return true;
+        } else {
+            console.log("no");
+            return false;
+        }
+    });
+}
+
 //分页查询
 app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
-    let currentPid = getCurrentPid();
+
+    let admin = isAdmin(request);
+    console.log("admin?");
+    console.log(admin);
+
+    let currentPid = await getCurrentPid();
+    console.log(currentPid);
     let pageIndex = request.body.pageIndex;
     let start = currentPid - (pageIndex-1)*20;
     let end = start - 20;
@@ -667,9 +815,19 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
         .get();
     let ret = [];
     vitems.forEach(doc => {
+        //如果不是管理员，跳过status为0的。
         let data = doc.data();
         data.id = doc.id;
-        ret.push(data);
+
+        if(data.status != undefined && data.status == 0) {
+            console.log("data.status:");
+            console.log(data.status);
+            if(admin) {
+                ret.push(data);
+            }
+        } else {
+            ret.push(data);
+        }
     })
     response.json(ret);
 })
@@ -737,7 +895,7 @@ app.post('/v/listFromBucket', jsonParser, async function (request, response)  {
 app.post('/v/deleteAllFromBucket', jsonParser, async function (request, response)  {
     let count = 0
 
-    filenames = fs.readdirSync('I:\\Outputs\\Locker\\nomark_made\\orig');
+    filenames = fs.readdirSync('H:\\GitProject\\nodejs\\caomeio\\uploads\\todel');
     for (const file of filenames) {
         let count = 0
         console.log(file);
@@ -749,6 +907,10 @@ app.post('/v/deleteAllFromBucket', jsonParser, async function (request, response
 
         let commandDel = new DeleteObjectCommand(params);
         await s3Client.send(commandDel);
+
+        const docRef = db.collection('vpid').doc("current");
+        await docRef.update({"pid": FieldValue.increment(-1)});
+
         console.log("Del done");
 
         count++;
@@ -757,10 +919,78 @@ app.post('/v/deleteAllFromBucket', jsonParser, async function (request, response
     response.json({"Count of Keys":count});
 })
 
+async function s3del(key) {
+    const params = {
+        Bucket: 'caomeio',
+        Key: key
+    }
+
+    let commandDel = new DeleteObjectCommand(params);
+    await s3Client.send(commandDel);
+}
+
+app.post('/v/deleteItemByFilename', jsonParser, async function (request, response)  {
+    for (const filename of request.body.filenames) {
+        console.log(filename);
+
+        s3del(filename);
+
+        let newName = filename.replace("_","@");
+        s3del(newName);
+
+        let preName = filename.replace("_","_p_");
+        s3del(preName);
+    }
+
+    console.log("Del done");
+
+    response.json({ret:1});
+})
+
+app.post('/v/deleteItemByKey', jsonParser, async function (request, response)  {
+    for (const key of request.body.ids) {
+
+        const doc = await db.collection('vitems').doc(key).get();
+        if(doc.data() != undefined) {
+
+            let filename = doc.data().filename;
+            s3del(filename);
+            fs.unlinkSync('pictures/' + filename.replace(".mp4",".jpg"))
+            fs.unlinkSync('pictures/' + filename.replace(".mp4",".gif"))
+
+            let newName = filename.replace("_","@");
+            s3del(newName);
+
+            let preName = filename.replace("_","_p_");
+            s3del(preName);
+
+
+            const username = doc.data().uploader.username;
+            const userRef = db.collection('vusers').doc(username);
+            const user = await userRef.get();
+            let ownedOfUser = []
+            if(user.data().owned != undefined) {
+                ownedOfUser = user.data().owned;
+            }
+
+            ownedOfUser = ownedOfUser.filter(function( obj ) {
+                return obj.itemId !== key;
+            });
+            const resultOfUser = await userRef.set({"owned": ownedOfUser},{merge:true});
+        }
+
+        const res = await db.collection('vitems').doc(key).delete();
+
+    }
+
+    console.log("Del done");
+
+    response.json({ret:1});
+})
+
 //更新一些项目的pid，与最新的pid互换，这样在分页中显示靠前
 app.post('/v/updatePid', jsonParser, async function (request, response)  {
     let count = 0
-    //let currentMaxPid = getCurrentPid();
     topPids = request.body.topPids;
     topIds = request.body.topIds;
     normalPids = request.body.normalPids;
@@ -781,26 +1011,40 @@ app.post('/v/updatePid', jsonParser, async function (request, response)  {
 
 //新评论
 app.post('/v/newcomments', jsonParser, async function(request, response) {
-    const itemRef = db.collection('vitems').doc(request.body.id);
-    const item = await itemRef.get();
-    let comments = []
-    if(item.data().comments != null) {
-        comments = item.data().comments;
-    }
-    let date = new Date();
-    comments.push({userId:request.body.userId, userName: request.body.userName, comments: request.body.comments, createtime: date});
-    const result = await itemRef.set({"comments": comments},{merge:true});
+    request.body.createtime = new Date();
+    const result = await db.collection('vcomments').add(request.body);
 
-    const userRef = db.collection('vusers').doc(request.body.userId);
-    const user = await userRef.get();
-    let commentsOfUser = []
-    if(user.data().comments != null) {
-        commentsOfUser = user.data().comments;
-    }
-    commentsOfUser.push({itemId: request.body.itemId, comments: request.body.comments, createtime: date});
-    const resultOfUser = await userRef.set({"comments": commentsOfUser},{merge:true});
+    // const itemRef = db.collection('vitems').doc(request.body.id);
+    // const item = await itemRef.get();
+    // let comments = []
+    // if(item.data().comments != null) {
+    //     comments = item.data().comments;
+    // }
+    // let date = new Date();
+    // comments.push({userId:request.body.userId, userName: request.body.userName, comments: request.body.comments, createtime: date});
+    // const result = await itemRef.set({"comments": comments},{merge:true});
+    //
+    // const userRef = db.collection('vusers').doc(request.body.userId);
+    // const user = await userRef.get();
+    // let commentsOfUser = []
+    // if(user.data().comments != null) {
+    //     commentsOfUser = user.data().comments;
+    // }
+    // commentsOfUser.push({itemId: request.body.itemId, comments: request.body.comments, createtime: date});
+    // const resultOfUser = await userRef.set({"comments": commentsOfUser},{merge:true});
 
-    res.json({ret:resultOfUser});
+    response.json({ret:result.id});
+});
+
+app.post('/v/getusercomments', jsonParser, async function(request, response) {
+    const comments = await db.collection('vcomments').where("username","==",request.body.username).orderBy("createtime","desc").get();
+    let vcomments = [];
+    comments.forEach(c => {
+        data = c.data();
+        data.id = c.id;
+        vcomments.push(data);
+    })
+    response.json(vcomments);
 });
 
 //收藏
@@ -816,13 +1060,16 @@ app.post('/v/newcollect', jsonParser, async function(request, response) {
         favoritesOfUser = user.data().favorites;
     }
     if(favoritesOfUser.filter(i => i.itemId == item.id).length == 0) {
-        favoritesOfUser.push({itemId: item.id, itemFilename: item.data().filename, createtime: new Date()});
+        let coll = {itemId: item.id, itemFilename: item.data().filename, createtime: new Date()};
+        if(item.data().byuser != undefined) {
+            coll.byuser = item.data().byuser;
+        }
+        favoritesOfUser.push(coll);
         const resultOfUser = await userRef.set({"favorites": favoritesOfUser},{merge:true});
     }
 
     response.json({ret:1});
 });
-
 
 
 app.post('/auth/signin', jsonParser, async function (request, response) {
@@ -847,15 +1094,24 @@ app.post('/auth/signin', jsonParser, async function (request, response) {
 
 app.post('/auth/signup', jsonParser, async function (request, response) {
     console.log(request.body);
-    request.body.createtime = new Date();
-    const res = await db.collection('vusers').doc(request.body.username).set(request.body);
-    response.json({data:{message:'注册成功'}});
+    const user = await db.collection('vusers').doc(request.body.username).get();
+    console.log(user.data());
+    if(user.data() != undefined) {
+        console.log("用户名已存在");
+        response.json({ret:0, message: '用户名已存在'});
+    } else {
+        if(request.body.createtime == undefined) {
+            request.body.createtime = new Date();
+        }
+        const res = await db.collection('vusers').doc(request.body.username).set(request.body);
+        response.json({ret:1, message:'注册成功'});
+    }
+
 });
 
 app.post('/v/userdetail', jsonParser, async function (request, response)  {
     //TODO: 验证
 
-    //let currentMaxPid = getCurrentPid();
     const userDoc = await db.collection('vusers').doc(request.body.username).get();
 
     response.json(userDoc.data());
@@ -864,7 +1120,6 @@ app.post('/v/userdetail', jsonParser, async function (request, response)  {
 app.post('/v/userupdate', jsonParser, async function (request, response)  {
     //TODO: 验证
 
-    //let currentMaxPid = getCurrentPid();
     const userRef = db.collection('vusers').doc(request.body.username);
     request.body.updatetime = new Date();
     await userRef.set(request.body,{merge:true});
@@ -902,30 +1157,298 @@ app.post("/v/presign", jsonParser,async function (req, res) {
     }
 });
 
-app.post('/v/ffmpeg', async function(request,response) {
-    let filename = "_unknown-123456789123456.mp4";
-    let imgName = filename.replace(".mp4",".png");
+function cutPreSeconds4Mp4(filename, newfilename, seconds) {
+    let filepath = 'uploads/';
+    ffmpeg(filepath + filename)
+        .outputOption("-ss", "0")
+        .outputOption("-t", seconds.toString())
+        .outputOption("-vf", "fade=t=out:st=" + (seconds-1).toString() + ":d=1")
+        .save(filepath + newfilename)
+        .on('end', function() {
+            console.log('preseconds mp4 created!');
+            fs.readFile(filepath + newfilename, function (err, data) {
+                //upload file Buffer to s3
+                upload2S3(newfilename, data);
+            });
+        });
+}
+
+function opsOnMp4(filename, watermarkFilename) {
+    //从远程下载文件
+    // const r = https.get(request.body.fileurl, function(res) {
+    //     res.pipe(file);
+    //
+    //     // after download completed close filestream
+    //     file.on("finish", () => {
+    //         file.close();
+    //         console.log("Download Completed");
+    //
+    //     });
+    // });
+
+    let filepath = 'uploads/';
+    //console.log("go");
+    console.log(filename);
+    let out_jpg = "";
+    let out_gif = "";
+
+    let imgName = filename.replace(".mp4",".jpg");
     let gifName = filename.replace(".mp4",".gif");
-    var proc = new ffmpeg('processed/' + filename)
+    //console.log("here1");
+    var proc = new ffmpeg(filepath + filename)
         .screenshots({
             count: 1,
-            folder: 'processed',
+            folder: 'pictures',
             filename: imgName,
-            timemarks: [ '3' ] // number of seconds
+            size: '?x375',
+            timemarks: [ '0' ] // number of seconds
         }).on('end', function() {
-            console.log('finished !');
-            console.log("Here we go..");
-            var imgbbUploader = require('imgbb-uploader');
-
-            imgbbUploader("1609ad5c658c52faf7d11488e5f83c11", "processed/" + imgName)
-                .then(response => console.log(response.url))
-                .catch(error => console.error(1))
+            console.log('jpg created!');
+            // var imgbbUploader = require('imgbb-uploader');
+            // imgbbUploader("1609ad5c658c52faf7d11488e5f83c11", filepath + imgName)
+            //     .then(response => {
+            //         console.log(response.url);
+            //         out_jpg = response.url;
+            //     })
+            //     .catch(error => console.error(1))
         });
 
-    response.json({ret:1});
+    ffmpeg(filepath + filename)
+        .outputOption("-ss", "0")
+        .outputOption("-t", "2")
+        .outputOption("-vf", "fps=5,scale=-1:375:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse")
+        .save("pictures/" + gifName)
+        .on('end', function() {
+            console.log('gif created!');
+
+            //var imgbbUploader = require('imgbb-uploader');
+            // imgbbUploader("1609ad5c658c52faf7d11488e5f83c11", "pictures/" + gifName)
+            //     .then(response => {
+            //         console.log(response.url);
+            //         out_gif = response.url;
+            //     })
+            //     .catch(error => console.error(1))
+        });
+
+    let position = Math.floor(Math.random() * 2) == 0 ? 'x=20:y=H-th-10' : 'x=20:y=20';
+
+    ffmpeg(filepath + filename)
+        .outputOption("-vf", 'drawtext=text=caomeio.web.app:' + position + ':fontsize=25:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2')
+        .save(filepath + watermarkFilename)
+        .on('end', function() {
+            console.log('new mp4 created!');
+
+            fs.readFile("uploads/" + watermarkFilename, function (err, data) {
+                //upload file Buffer to s3
+                upload2S3(watermarkFilename, data);
+            });
+
+        });
+
+}
+
+async function upload2S3(filename, data) {
+    const command = new PutObjectCommand({
+        Bucket: 'caomeio',
+        Key: filename,
+        Body: data,
+    });
+
+    try {
+        const response = await s3Client.send(command);
+        console.log(response);
+        //上传后删除本地文件
+        fs.unlinkSync("uploads/" + filename);
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function add2db(data) {
+    let pid = await getCurrentPid();
+    data.pid = pid;
+
+    data.createtime = new Date();
+    if(data.price != undefined && data.price > 0) {
+        data.status = 0;
+    }
+    const res = await db.collection('vitems').add(data);
+    console.log(res.id);
+    //pid = pid + 1;
+    setCurrentPid(pid);
+
+    const userRef = db.collection('vusers').doc(data.uploader.username);
+    const user = await userRef.get();
+    let ownedOfUser = []
+    if(user.data().owned != undefined) {
+        ownedOfUser = user.data().owned;
+    }
+    if(ownedOfUser.filter(i => i.itemId == res.id).length == 0) {
+        let ownData = {itemId: res.id, byuser: data.byuser, itemFilename: data.filename, createtime: data.createtime};
+        if(data.price != undefined && data.price > 0) {
+            ownData.priceAsked = data.price;
+            ownData.status = data.status;
+        }
+        ownedOfUser.push(ownData);
+        const resultOfUser = await userRef.set({"owned": ownedOfUser},{merge:true});
+    }
+}
+
+app.post('/v/setprice', jsonParser, async function(req, res) {
+    console.log(req.body.ids);
+    console.log(req.body.priceConfirmed);
+    for (const key of req.body.ids) {
+        const docRef = db.collection('vitems').doc(key);
+        await docRef.update({price:req.body.priceConfirmed, status: 1});
+
+        let doc = await docRef.get();
+
+        const userRef = db.collection('vusers').doc(doc.data().uploader.username);
+        const user = await userRef.get();
+
+        let ownedOfUser = [];
+        if(user.data().owned != undefined) {
+            ownedOfUser = user.data().owned;
+        }
+        let item = ownedOfUser.find(i => i.itemId === key);
+        item.price = req.body.priceConfirmed;
+        item.status = 1;
+        console.log(ownedOfUser);
+
+        let balance = req.body.priceConfirmed;
+        if(user.data().balance != undefined) {
+            balance = balance + user.data().balance;
+        }
+
+        const resultOfUser = await userRef.set({"owned": ownedOfUser, "balance": balance},{merge:true});
+    }
+    res.json({ret:1});
+
+})
+
+app.post("/v/getByKey", jsonParser, async function (req, res) {
+    let url = await findUrlByKey(req.body.key, 60);
+    res.json({ret: url});
+})
+
+//用户上传
+app.post("/v/userupload", upload.single('file'), function(req, res) {
+    console.log(req.file.filename);
+    let data = JSON.parse(req.body["exdata"]);
+    console.log(data);
+
+    let filename = req.file.filename;
+
+    if(data.price != undefined && data.price > 0) {
+        let newfilename = filename.replace("_","_p_");
+        //如果有设置price
+        let seconds = data.preseconds;
+        //截取前几秒，put到s3
+        cutPreSeconds4Mp4(filename, newfilename, seconds);
+    }
+
+    //db
+    add2db(data);
+
+    let watermarkFilename = filename.replace("_","@");
+    //ops: jpg, gif, watermark
+    opsOnMp4(filename, watermarkFilename);
+
+    //最后上传原文件，因为上传后删除需要放最后。否则，前面读取该原文件的时候，就会找不到了。
+    fs.readFile("uploads/" + filename, function (err, data) {
+        //upload file Buffer to s3
+        upload2S3(filename, data);
+    });
+
+    res.json({ ret: 1 });
+
 });
 
-app.put('/v/add', jsonParser,async function (request, response) {
+app.post("/v/checkconsumed", jsonParser, async function(request, response) {
+    let ret = -1;
+    const vconsumes = await db.collection('vconsumes').where("id","==",request.body.id).where("username","==",request.body.username).get();
+    if(vconsumes.size > 0) {
+        ret = 1;
+    } else {
+        ret = 0;
+    }
+    response.json({ret:ret});
+})
+
+app.post("/v/userconsume", jsonParser, async function(request, response) {
+    let ret = -1;
+    const vconsumes = await db.collection('vconsumes').where("id","==",request.body.id).where("username","==",request.body.username).get();
+    if(vconsumes.size > 0) {
+        ret = 1;
+    } else {
+        const userRef = db.collection('vusers').doc(request.body.username);
+        const userDoc = await userRef.get();
+        if(userDoc.data().balance != undefined && userDoc.data().balance >= request.body.price) {
+            //consume
+            //如果之前已购买，则不需要重复消费
+            const vconsumes = await db.collection('vconsumes').where("id","==",request.body.id).where("username","==",request.body.username).get();
+            await userRef.update({balance: userDoc.data().balance - request.body.price});
+            request.body.createtime = new Date();
+            const result = await db.collection('vconsumes').add(request.body);
+
+            ret = 1;
+        } else {
+            ret = 0;
+        }
+    }
+    response.json({ret:ret});
+})
+
+app.post("/v/avatarupload", upload.single('image'), function(req, res) {
+    console.log(req.file.filename);
+    res.json({avatar:req.file.filename});
+})
+
+app.post("/v/useraccount", jsonParser, async function(request, response) {
+
+    const userRef = db.collection('vusers').doc(request.body.username);
+    const user = await userRef.get();
+
+    let list = []
+    if(user.data().owned != undefined) {
+        user.data().owned.forEach(u => {
+            list.push({type: 1, createtime: u.createtime, itemId: u.itemId, price: u.price, priceAsked: u.priceAsked, status: u.status});
+        });
+    }
+
+    const vconsumes = await db.collection('vconsumes').where("username","==",request.body.username).get();
+    vconsumes.forEach(c => {
+        list.push({type: 0, createtime: c.data().createtime, itemId: c.data().id, price: c.data().price});
+    });
+
+    response.json(list);
+
+})
+
+
+
+app.post('/v/ffmpeg', async function(request,response) {
+    //let filename = request.body.filename;
+    //opsOnMp4(filename);
+
+    //console.log(req.file.filename);
+    //console.log(JSON.parse(req.body["exdata"]));
+
+    let seconds = 8;
+
+    ffmpeg("uploads/sample.mp4")
+        .outputOption("-ss", "0")
+        .outputOption("-t", seconds.toString())
+        .outputOption("-vf", "fade=t=out:st=" + (seconds-1).toString() + ":d=1")
+        .save("uploads/sample_modifed.mp4")
+        .on('end', function() {
+            console.log('mp4 created!');
+            response.json({ret:1});
+        });
+
+});
+
+app.put('/v/add', jsonParser, async function (request, response) {
     // let token = request.headers["x-access-token"];
     //
     // if (!token) {
@@ -943,39 +1466,9 @@ app.put('/v/add', jsonParser,async function (request, response) {
     //     //request.userId = decoded.id;
     // });
 
-    // const params = {
-    //     Bucket: 'demo-bucket',
-    //     Key: request.body.filename
-    //@djnico29-7239975689447918850.mp4
-    // }
-    //
-    // let command = new GetObjectCommand(params);
-    // const url = await getSignedUrl(s3Client, command);
-    // console.log(url);
-    // request.body.defaultVideoUrl = url;
-
-    let n = getCurrentPid();
-    let pid = Number(n)
-    request.body.pid = pid;
-
-    request.body.createtime = new Date();
-    const res = await db.collection('vitems').add(request.body);
-    console.log(res.id);
-    pid = pid + 1;
-    setCurrentPid(pid.toString());
-
-    const userRef = db.collection('vusers').doc(request.body.uploader.username);
-    const user = await userRef.get();
-    let ownedOfUser = []
-    if(user.data().owned != undefined) {
-        ownedOfUser = user.data().owned;
-    }
-    if(ownedOfUser.filter(i => i.itemId == res.id).length == 0) {
-        ownedOfUser.push({itemId: res.id, itemFilename: request.body.filename, createtime: request.body.createtime});
-        const resultOfUser = await userRef.set({"owned": ownedOfUser},{merge:true});
-    }
-
     response.json({ret:res.id});
 });
 
+app.use("/pictures", express.static(__dirname + '/pictures'));
+app.use("/avatars", express.static(__dirname + '/uploads'));
 app.listen(3001, () => console.log(('listening :)')))
