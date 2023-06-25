@@ -8,11 +8,13 @@ const { getFirestore } = require('firebase-admin/firestore');
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
+//let destFolder = "uploads/";
+let destFolder = "/tmp/";
 
 const multer = require("multer");
 var storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, 'uploads/')
+        cb(null, destFolder)
     },
     filename: function (req, file, cb) {
         cb(null, file.originalname)
@@ -1158,7 +1160,7 @@ app.post("/v/presign", jsonParser,async function (req, res) {
 });
 
 function cutPreSeconds4Mp4(filename, newfilename, seconds) {
-    let filepath = 'uploads/';
+    let filepath = destFolder;
     ffmpeg(filepath + filename)
         .outputOption("-ss", "0")
         .outputOption("-t", seconds.toString())
@@ -1186,7 +1188,7 @@ function opsOnMp4(filename, watermarkFilename) {
     //     });
     // });
 
-    let filepath = 'uploads/';
+    let filepath = destFolder;
     //console.log("go");
     console.log(filename);
     let out_jpg = "";
@@ -1238,7 +1240,7 @@ function opsOnMp4(filename, watermarkFilename) {
         .on('end', function() {
             console.log('new mp4 created!');
 
-            fs.readFile("uploads/" + watermarkFilename, function (err, data) {
+            fs.readFile(destFolder + watermarkFilename, function (err, data) {
                 //upload file Buffer to s3
                 upload2S3(watermarkFilename, data);
             });
@@ -1258,7 +1260,7 @@ async function upload2S3(filename, data) {
         const response = await s3Client.send(command);
         console.log(response);
         //上传后删除本地文件
-        fs.unlinkSync("uploads/" + filename);
+        fs.unlinkSync(destFolder + filename);
     } catch (err) {
         console.error(err);
     }
@@ -1355,7 +1357,7 @@ app.post("/v/userupload", upload.single('file'), function(req, res) {
     opsOnMp4(filename, watermarkFilename);
 
     //最后上传原文件，因为上传后删除需要放最后。否则，前面读取该原文件的时候，就会找不到了。
-    fs.readFile("uploads/" + filename, function (err, data) {
+    fs.readFile(destFolder + filename, function (err, data) {
         //upload file Buffer to s3
         upload2S3(filename, data);
     });
