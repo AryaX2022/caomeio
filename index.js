@@ -1580,28 +1580,28 @@ app.post("/v/userupload", upload.single('file'), function(req, res) {
     let data = JSON.parse(req.body["exdata"]);
     console.log(data);
 
-    // let filename = req.file.filename;
-    //
-    // if(data.price != undefined && data.price > 0) {
-    //     let newfilename = filename.replace("_","_p_");
-    //     //如果有设置price
-    //     let seconds = data.preseconds;
-    //     //截取前几秒，put到s3
-    //     cutPreSeconds4Mp4(filename, newfilename, seconds);
-    // }
-    //
-    // //db
-    // add2db(data);
-    //
-    // let watermarkFilename = filename.replace("_","@");
-    // //ops: jpg, gif, watermark
-    // opsOnMp4(filename, watermarkFilename);
-    //
-    // //最后上传原文件，因为上传后删除需要放最后。否则，前面读取该原文件的时候，就会找不到了。
-    // fs.readFile(destFolder + filename, function (err, data) {
-    //     //upload file Buffer to s3
-    //     upload2S3(filename, data);
-    // });
+    let filename = req.file.filename;
+
+    if(data.price != undefined && data.price > 0) {
+        let newfilename = filename.replace("_","_p_");
+        //如果有设置price
+        let seconds = data.preseconds;
+        //截取前几秒，put到s3
+        cutPreSeconds4Mp4(filename, newfilename, seconds);
+    }
+
+    //db
+    add2db(data);
+
+    let watermarkFilename = filename.replace("_","@");
+    //ops: jpg, gif, watermark
+    opsOnMp4(filename, watermarkFilename);
+
+    //最后上传原文件，因为上传后删除需要放最后。否则，前面读取该原文件的时候，就会找不到了。
+    fs.readFile(destFolder + filename, function (err, data) {
+        //upload file Buffer to s3
+        upload2S3(filename, data);
+    });
 
     res.json({ ret: 1 });
 
