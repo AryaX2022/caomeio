@@ -6,10 +6,14 @@ const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const { Upload } = require("@aws-sdk/lib-storage");
+var AWS = require('aws-sdk');
+const stream = require('stream');
+const {Readable, PassThrough } = require('stream');
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
-//let destFolder = "uploads/";
-let destFolder = "/tmp/";
+let destFolder = "uploads/";
+//let destFolder = "/tmp/";   //render.com不支持本地文件存储 TODO：ffmpeg 获取stream，然后处理。
 
 const multer = require("multer");
 var storage = multer.diskStorage({
@@ -36,6 +40,11 @@ const s3Client = new S3Client({
     endpoint: "https://gateway.storjshare.io",
 });
 
+const s3 = new AWS.S3({
+    accessKeyId: "jxxpimx7rapd6eg6rqgimfmvh6za",
+    secretAccessKey: "j2ns2h5er2o5zj2y4mpxp4tn5ycvbx2dvlp67fubif4e6vnm2vxoc",
+    endpoint: "https://gateway.storjshare.io",
+});
 
 var jwt = require("jsonwebtoken");
 var bodyParser = require('body-parser')
@@ -76,6 +85,7 @@ const db = getFirestore();
 const tname = "modelsV2";
 
 const { collection, DocumentData, addDoc, getDocs, setDoc, doc, updateDoc, increment, FieldValue, Timestamp, serverTimestamp  } = require('firebase-admin/firestore');
+const MediaConverter = require("html5-media-converter");
 
 app.get('/', (req, res) => {
     console.log("Good");
@@ -1333,34 +1343,265 @@ app.post("/v/getByKey", jsonParser, async function (req, res) {
     res.json({ret: url});
 })
 
+//var ffmpeg = require('./ffmpeg.js');
+//importScripts('./ffmpeg.js');
+//eval(fs.readFileSync("./ffmpeg-all-codecs.js", "utf-8"))
+
+//const {ffmpeg_run} = require('videoconverter');
+
+app.post("/v/ffmpegjs", async function(request, response) {
+
+    var inputStream = fs.createReadStream('uploads/_goodgirl-123456789.mp4');
+
+    const buffers = [];
+    // node.js readable streams implement the async iterator protocol
+    for await (const data of inputStream) {
+        buffers.push(data);
+    }
+    const finalBuffer = Buffer.concat(buffers);
+
+    var sampleVideoData = new Uint8Array(finalBuffer);
+
+
+    var results = ffmpeg_run({
+        arguments: "-t 5 -i _goodgirl-123456789.mp4 -vf showinfo -strict -2 output.gif",
+        files: [
+            {
+                data: sampleVideoData,
+                name: "_goodgirl-123456789.mp4"
+            }
+        ]
+    });
+
+    // results is an Array of { data: UInt8Array, name: string }
+    results.forEach(function(file) {
+        console.log("File recieved", file.name, file.data);
+    });
+
+    response.json({ret:1});
+
+})
+
+function pass2s3(passthroughStream, destFilename) {
+    const uploadStream = ({ Bucket, Key }) => {
+        const pass = new PassThrough();
+        return {
+            writeStream: pass,
+            promise: s3.upload({ Bucket, Key, Body: pass }).promise(),
+        };
+    }
+
+    const { writeStream, promise } = uploadStream({Bucket: 'caomeio', Key: destFilename});
+    const pipeline = passthroughStream.pipe(writeStream);
+
+    promise.then(() => {
+        console.log(destFilename + ' upload completed successfully');
+    }).catch((err) => {
+        console.log(destFilename + 'upload failed.', err.message);
+    });
+}
+
+function convertmp4(secondsFilename) {
+    var MediaConverter = require("html5-media-converter");
+    var request = require("request");
+    var mc = new MediaConverter({ videoFormats: ['webm'] });
+    var converter = mc.asStream("200x200");
+
+    request.get('https://caomeio.gateway.storjshare.io/_goodgirl-123456789.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=jxxpimx7rapd6eg6rqgimfmvh6za%2F20230626%2Fus-1%2Fs3%2Faws4_request&X-Amz-Date=20230626T084046Z&X-Amz-Expires=60&X-Amz-Signature=027c06f0a3db42b48b2846fc9550eeeb55ede06983cd397514f8944e8b0c6bee&X-Amz-SignedHeaders=host&x-id=GetObject').pipe(converter).map(function(stream) {
+        //stream.pipe(request.put("http://server/thumbnail"+stream.videoConverter.extName()));
+        var outStream = fs.createWriteStream('uploads/output4.webm');
+        stream.pipe(outStream);
+    });
+}
+
+async function ffmpeg2s3(srcFilename, secondsFilename, watermarkFilename, seconds) {
+    var awsstream = s3.getObject({Bucket:"caomeio", Key: srcFilename}).createReadStream();
+
+    // const params = {
+    //     Bucket: "caomeio", Key: srcFilename
+    // }
+    // const command = new GetObjectCommand(params);
+    // const response = await s3Client.send(command);
+    // const awsstream = Readable.from(response.Body);
+
+    //awsstream.pipe( fs.createWriteStream("uploads/output1.mp4"));
+
+    const inputForFFMPEG = new PassThrough();
+    //awsstream.pipe( fs.createWriteStream("uploads/output2.mp4"));
+    awsstream.pipe(inputForFFMPEG);
+
+    var inputStream = fs.createReadStream('uploads/goodgirl-123456789.webm');
+
+    const passthroughStream = new PassThrough();
+
+    var outStream = fs.createWriteStream('uploads/output2.mp4');
+
+    let position = Math.floor(Math.random() * 2) == 0 ? 'x=20:y=H-th-10' : 'x=20:y=20';
+    var proc = new ffmpeg(inputStream)
+        .inputFormat('webm')
+        .addOutputOption('-movflags','frag_keyframe+empty_moov')
+        .outputOption("-vf", 'drawtext=text=caomeio.web.app:' + position + ':fontsize=25:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2')
+        .toFormat('mp4')
+        //.writeToStream(outStream, { end: true })
+        .outputOption("-ss", "0")
+        .outputOption("-t", seconds.toString())
+        //.save(outStream)
+        .save(passthroughStream)
+        //.save("uploads/output3.mp4")
+        //.seekInput(offset) this is a problem with piping
+        .on('error', function (err, stdout, stderr) {
+            console.log('an error happened: ' + err.message);
+        })
+        .on('end', function () {
+            console.log('Processing finished !');
+        })
+        .on('progress', function (progress) {
+            console.log('Processing: ' + progress.percent + '% done');
+        });
+
+
+    pass2s3(passthroughStream, secondsFilename);
+
+    // let position = Math.floor(Math.random() * 2) == 0 ? 'x=20:y=H-th-10' : 'x=20:y=20';
+    //
+    // ffmpeg(stream)
+    //     .format('mp4')
+    //     .outputOption("-vf", 'drawtext=text=caomeio.web.app:' + position + ':fontsize=25:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2')
+    //     .output(passthroughStream, { end: true })
+    //     .on('end', function() {
+    //         console.log('new mp4 created!');
+    //     });
+    // pass2s3(passthroughStream, watermarkFilename);
+
+}
+
+app.post("/v/afterupload", jsonParser, async function(request, response) {
+    let filename = request.body.filename;
+    let price = request.body.price;
+
+    console.log(filename);
+
+
+
+    let watermarkFilename = filename.replace("_","@");
+
+    if(price != undefined && price > 0) {
+        let secondsFilename = filename.replace("_","_p_");
+        //如果有设置price
+        let seconds = request.body.preseconds;
+        //截取前几秒，put到s3
+
+        convertmp4(secondsFilename);
+        //ffmpeg2s3(filename, secondsFilename, watermarkFilename, seconds  );
+    }
+    response.json({ret:1});
+
+})
+
+
+app.post("/v/uploadtest", async function(request, response) {
+
+    const s3 = new AWS.S3({
+        accessKeyId: "jxxpimx7rapd6eg6rqgimfmvh6za",
+        secretAccessKey: "j2ns2h5er2o5zj2y4mpxp4tn5ycvbx2dvlp67fubif4e6vnm2vxoc",
+        region: "us-1",
+        endpoint: "https://gateway.storjshare.io",
+    });
+
+    var stream = s3.getObject({Bucket:"caomeio", Key:"_goodgirl-126565811888.mp4"}).createReadStream();
+
+    const passthroughStream = new PassThrough();
+
+
+    // pipe([stream], [options]): pipe the output to a writable stream
+    // Aliases: stream(), writeToStream().
+    //     Starts processing and pipes ffmpeg output to a writable stream. The options argument, if present, is passed to ffmpeg output stream's pipe() method (see nodejs documentation).
+
+    // var outStream = fs.createWriteStream('/path/to/output.mp4');
+    //
+    // ffmpeg('/path/to/file.avi')
+    //     .videoCodec('libx264')
+    //     .audioCodec('libmp3lame')
+    //     .size('320x240')
+    //     .on('error', function(err) {
+    //         console.log('An error occurred: ' + err.message);
+    //     })
+    //     .on('end', function() {
+    //         console.log('Processing finished !');
+    //     })
+    //     .pipe(outStream, { end: true });
+
+
+    // fluent-ffmpeg supports a readstream as an arg in constructor
+    var proc = new ffmpeg(stream)
+        .format('mp4')
+        .outputOptions('-movflags frag_keyframe+empty_moov')
+        .outputOption("-ss", "0")
+        .outputOption("-t", "3")
+        .output(passthroughStream, { end: true })
+        //.seekInput(offset) this is a problem with piping
+        .on('error', function(err,stdout,stderr) {
+            console.log('an error happened: ' + err.message);
+            console.log('ffmpeg stdout: ' + stdout);
+            console.log('ffmpeg stderr: ' + stderr);
+        })
+        .on('end', function() {
+            console.log('Processing finished !');
+        })
+        .on('progress', function(progress) {
+            console.log('Processing: ' + progress.percent + '% done');
+        }).run();
+
+
+    const uploadStream = ({ Bucket, Key }) => {
+        const pass = new PassThrough();
+        return {
+            writeStream: pass,
+            promise: s3.upload({ Bucket, Key, Body: pass }).promise(),
+        };
+    }
+
+    const { writeStream, promise } = uploadStream({Bucket: 'caomeio', Key: '_goodgirl-126565811888-new.mp4'}); //_goodgirl-12345654321-new.mp4
+    const pipeline = passthroughStream.pipe(writeStream);
+
+    promise.then(() => {
+        console.log('upload completed successfully');
+    }).catch((err) => {
+        console.log('upload failed.', err.message);
+    });
+
+    response.json({ret:1});
+
+})
+
 //用户上传
 app.post("/v/userupload", upload.single('file'), function(req, res) {
     console.log(req.file.filename);
     let data = JSON.parse(req.body["exdata"]);
     console.log(data);
 
-    let filename = req.file.filename;
-
-    if(data.price != undefined && data.price > 0) {
-        let newfilename = filename.replace("_","_p_");
-        //如果有设置price
-        let seconds = data.preseconds;
-        //截取前几秒，put到s3
-        cutPreSeconds4Mp4(filename, newfilename, seconds);
-    }
-
-    //db
-    add2db(data);
-
-    let watermarkFilename = filename.replace("_","@");
-    //ops: jpg, gif, watermark
-    opsOnMp4(filename, watermarkFilename);
-
-    //最后上传原文件，因为上传后删除需要放最后。否则，前面读取该原文件的时候，就会找不到了。
-    fs.readFile(destFolder + filename, function (err, data) {
-        //upload file Buffer to s3
-        upload2S3(filename, data);
-    });
+    // let filename = req.file.filename;
+    //
+    // if(data.price != undefined && data.price > 0) {
+    //     let newfilename = filename.replace("_","_p_");
+    //     //如果有设置price
+    //     let seconds = data.preseconds;
+    //     //截取前几秒，put到s3
+    //     cutPreSeconds4Mp4(filename, newfilename, seconds);
+    // }
+    //
+    // //db
+    // add2db(data);
+    //
+    // let watermarkFilename = filename.replace("_","@");
+    // //ops: jpg, gif, watermark
+    // opsOnMp4(filename, watermarkFilename);
+    //
+    // //最后上传原文件，因为上传后删除需要放最后。否则，前面读取该原文件的时候，就会找不到了。
+    // fs.readFile(destFolder + filename, function (err, data) {
+    //     //upload file Buffer to s3
+    //     upload2S3(filename, data);
+    // });
 
     res.json({ ret: 1 });
 
