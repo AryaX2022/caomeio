@@ -721,6 +721,7 @@ async function findUrlByKey(key, expire) {
 
     let command = new GetObjectCommand(params);
     const url = await getSignedUrl(s3Client, command, {expiresIn: expire});
+    console.log(url);
     return url;
 }
 
@@ -948,6 +949,10 @@ app.post('/v/deleteItemByFilename', jsonParser, async function (request, respons
         console.log(filename);
 
         s3del(filename);
+        let jpgfilename = filename.replace(".mp4",".jpg");
+        s3del(jpgfilename);
+        let giffilename = filename.replace(".mp4",".gif");
+        s3del(giffilename);
 
         let newName = filename.replace("_","@");
         s3del(newName);
@@ -969,8 +974,12 @@ app.post('/v/deleteItemByKey', jsonParser, async function (request, response)  {
 
             let filename = doc.data().filename;
             s3del(filename);
-            fs.unlinkSync('pictures/' + filename.replace(".mp4",".jpg"))
-            fs.unlinkSync('pictures/' + filename.replace(".mp4",".gif"))
+            //fs.unlinkSync('pictures/' + filename.replace(".mp4",".jpg"))
+            //fs.unlinkSync('pictures/' + filename.replace(".mp4",".gif"))
+            let jpgfilename = filename.replace(".mp4",".jpg");
+            s3del(jpgfilename);
+            let giffilename = filename.replace(".mp4",".gif");
+            s3del(giffilename);
 
             let newName = filename.replace("_","@");
             s3del(newName);
@@ -1074,7 +1083,7 @@ app.post('/v/newcollect', jsonParser, async function(request, response) {
         favoritesOfUser = user.data().favorites;
     }
     if(favoritesOfUser.filter(i => i.itemId == item.id).length == 0) {
-        let coll = {itemId: item.id, itemFilename: item.data().filename, createtime: new Date()};
+        let coll = {itemId: item.id, filename: item.data().filename, createtime: new Date()};
         if(item.data().byuser != undefined) {
             coll.byuser = item.data().byuser;
         }
@@ -1302,7 +1311,7 @@ async function add2db(data) {
         ownedOfUser = user.data().owned;
     }
     if(ownedOfUser.filter(i => i.itemId == res.id).length == 0) {
-        let ownData = {itemId: res.id, byuser: data.byuser, itemFilename: data.filename, createtime: data.createtime};
+        let ownData = {itemId: res.id, byuser: data.byuser, filename: data.filename, createtime: data.createtime};
         if(data.price != undefined && data.price > 0) {
             ownData.priceAsked = data.price;
             ownData.status = data.status;
@@ -1451,6 +1460,60 @@ function ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds) {
 
 }
 
+function ffmpeg2Gif(signedUrl, gifFilename) {
+
+    var passthroughStream = new PassThrough();
+    var proc = new ffmpeg(signedUrl)
+        .inputFormat('mp4')
+        .outputFormat('gif')
+        .outputOption("-ss", "0")
+        .outputOption("-t", "2")
+        .outputOption("-vf", "fps=5,scale=-1:375:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse")
+        //.save(passthroughStream2,{end:true}) //,{end:true}
+
+        .on('error', function (err, stdout, stderr) {
+            console.log('an error happened: ' + err.message);
+        })
+        .on('end', function () {
+            console.log('gif created!');
+        })
+        .on('progress', function (progress) {
+            console.log('Processing... ');
+        });
+
+    proc.output(passthroughStream,{ end:true }).run();
+
+    pass2s3(passthroughStream, gifFilename);
+
+}
+
+function ffmpeg2Jpg(signedUrl, jpgFilename) {
+
+    var passthroughStream = new PassThrough();
+    var proc = new ffmpeg(signedUrl)
+        .inputFormat('mp4')
+        .outputOption("-ss", "0")
+        .outputOption("-frames:v", "1")
+        .outputOption("-f", "image2")
+        .outputOption("-q:v", "2")
+        //.save(passthroughStream2,{end:true}) //,{end:true}
+
+        .on('error', function (err, stdout, stderr) {
+            console.log('an error happened: ' + err.message);
+        })
+        .on('end', function () {
+            console.log('gif created!');
+        })
+        .on('progress', function (progress) {
+            console.log('Processing... ');
+        });
+
+    proc.output(passthroughStream,{ end:true }).run();
+
+    pass2s3(passthroughStream, jpgFilename);
+
+}
+
 function ffmpeg2WaMp4(signedUrl, watermarkFilename) {
 
     let position = Math.floor(Math.random() * 2) == 0 ? 'x=20:y=H-th-10' : 'x=20:y=20';
@@ -1493,6 +1556,8 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
     //let signedUrl = "https://caomeio.gateway.storjshare.io/_goodgirl-123456789.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=jxxpimx7rapd6eg6rqgimfmvh6za%2F20230626%2Fus-1%2Fs3%2Faws4_request&X-Amz-Date=20230626T130037Z&X-Amz-Expires=6000&X-Amz-Signature=68d5abaaa2549839a8796017be3636f7896842c18d50bab09bc2e7fd647df9ef&X-Amz-SignedHeaders=host&x-id=GetObject";
 
     //把stream buffer放到内存，后续多次使用 buffer->stream，转mp4/gif/jpg
+    let gifFilename = filename.replace(".mp4",".gif");
+    let jpgFilename = filename.replace(".mp4",".jpg");
 
     let watermarkFilename = filename.replace("_","@");
 
@@ -1504,6 +1569,8 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
         ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds);
     }
     ffmpeg2WaMp4(signedUrl, watermarkFilename);
+    ffmpeg2Gif(signedUrl, gifFilename);
+    ffmpeg2Jpg(signedUrl, jpgFilename);
 
     response.json({ret:1});
 
