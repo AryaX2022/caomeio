@@ -2,6 +2,8 @@ const express = require('express');
 const app = express();
 const https = require('https');
 
+const log = require('log-to-file');
+
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
@@ -1171,18 +1173,22 @@ app.post("/v/presign", jsonParser,async function (req, res) {
 
 function cutPreSeconds4Mp4(filename, newfilename, seconds) {
     let filepath = destFolder;
-    ffmpeg(filepath + filename)
-        .outputOption("-ss", "0")
-        .outputOption("-t", seconds.toString())
-        .outputOption("-vf", "fade=t=out:st=" + (seconds-1).toString() + ":d=1")
-        .save(filepath + newfilename)
-        .on('end', function() {
-            console.log('preseconds mp4 created!');
-            fs.readFile(filepath + newfilename, function (err, data) {
-                //upload file Buffer to s3
-                upload2S3(newfilename, data);
+    try {
+        ffmpeg(filepath + filename)
+            .outputOption("-ss", "0")
+            .outputOption("-t", seconds.toString())
+            .outputOption("-vf", "fade=t=out:st=" + (seconds-1).toString() + ":d=1")
+            .save(filepath + newfilename)
+            .on('end', function() {
+                console.log('preseconds mp4 created!');
+                fs.readFile(filepath + newfilename, function (err, data) {
+                    //upload file Buffer to s3
+                    upload2S3(newfilename, data);
+                });
             });
-        });
+    } catch (e) {
+        log(e);
+    }
 }
 
 function opsOnMp4(filename, watermarkFilename) {
@@ -1270,7 +1276,7 @@ async function upload2S3(filename, data) {
         const response = await s3Client.send(command);
         console.log(response);
         //上传后删除本地文件
-        fs.unlinkSync(destFolder + filename);
+        //fs.unlinkSync(destFolder + filename);
     } catch (err) {
         console.error(err);
     }
@@ -1547,6 +1553,8 @@ app.post("/v/userupload", upload.single('file'), function(req, res) {
     console.log(req.file.filename);
     let data = JSON.parse(req.body["exdata"]);
     console.log(data);
+
+    log(data);
 
     let filename = req.file.filename;
 
