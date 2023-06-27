@@ -7,7 +7,7 @@ const log = require('log-to-file');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
-const { S3Client, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 //const { Upload } = require("@aws-sdk/lib-storage");
 var AWS = require('aws-sdk');
 //const stream = require('stream');
@@ -1431,7 +1431,7 @@ function ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds) {
         .inputFormat('mp4')
         .toFormat('mp4')
 
-        .save(passthroughStream,{end:true})
+        //.save(passthroughStream,{end:true})
         .addOutputOption('-movflags','frag_keyframe+empty_moov')
         .outputOption("-ss", "0")
         .outputOption("-t", seconds.toString())
@@ -1446,6 +1446,7 @@ function ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds) {
             console.log('Processing... ');
         });
 
+    proc.output(passthroughStream,{ end:true }).run();
     pass2s3(passthroughStream, secondsFilename);
 
 }
@@ -1454,14 +1455,13 @@ function ffmpeg2WaMp4(signedUrl, watermarkFilename) {
 
     let position = Math.floor(Math.random() * 2) == 0 ? 'x=20:y=H-th-10' : 'x=20:y=20';
 
-    const passthroughStream2 = new PassThrough();
+    var passthroughStream = new PassThrough();
     var proc = new ffmpeg(signedUrl)
         .inputFormat('mp4')
         .toFormat('mp4')
-
-        .addOutputOption('-movflags','frag_keyframe+empty_moov')
-        .save(passthroughStream2,{end:true})
         .outputOption("-vf", 'drawtext=text=caomeio.web.app:' + position + ':fontsize=25:fontcolor=white:shadowcolor=black:shadowx=2:shadowy=2')
+        .addOutputOption('-movflags','frag_keyframe+empty_moov')
+        //.save(passthroughStream2,{end:true}) //,{end:true}
 
         .on('error', function (err, stdout, stderr) {
             console.log('an error happened: ' + err.message);
@@ -1473,8 +1473,9 @@ function ffmpeg2WaMp4(signedUrl, watermarkFilename) {
             console.log('Processing... ');
         });
 
+    proc.output(passthroughStream,{ end:true }).run();
 
-    pass2s3(passthroughStream2, watermarkFilename);
+    pass2s3(passthroughStream, watermarkFilename);
 
 }
 
@@ -1482,9 +1483,16 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
     let filename = request.body.filename;
     let price = request.body.price;
 
+    //db
+    add2db(request.body);
+
     console.log(filename);
-    let signedUrl = request.body.url;
+    //let signedUrl = request.body.url;
+    let signedUrl = await findUrlByKey(request.body.filename, 600);
+
     //let signedUrl = "https://caomeio.gateway.storjshare.io/_goodgirl-123456789.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=jxxpimx7rapd6eg6rqgimfmvh6za%2F20230626%2Fus-1%2Fs3%2Faws4_request&X-Amz-Date=20230626T130037Z&X-Amz-Expires=6000&X-Amz-Signature=68d5abaaa2549839a8796017be3636f7896842c18d50bab09bc2e7fd647df9ef&X-Amz-SignedHeaders=host&x-id=GetObject";
+
+    //把stream buffer放到内存，后续多次使用 buffer->stream，转mp4/gif/jpg
 
     let watermarkFilename = filename.replace("_","@");
 
@@ -1496,8 +1504,6 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
         ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds);
     }
     ffmpeg2WaMp4(signedUrl, watermarkFilename);
-
-    //第二次执行的时候，有问题.
 
     response.json({ret:1});
 
