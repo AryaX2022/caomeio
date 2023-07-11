@@ -74,8 +74,8 @@ const serviceAccount = {
 
 const cors = require('cors');
 app.use(cors({
-    //origin: ['http://127.0.0.1:5174','http://127.0.0.1:5173']
-    origin: ['http://localhost:3000','http://127.0.0.1:5174','http://127.0.0.1:5173', 'https://caomeio.web.app']
+    //TODO
+    origin: ['http://192.168.1.3:5173','http://127.0.0.1:5174','http://127.0.0.1:5173', 'https://caomeio.web.app']
 }));
 
 
@@ -84,10 +84,22 @@ initializeApp({
 });
 
 const db = getFirestore();
-// const tname = "models";
-const tname = "modelsV2";
 
 const { collection, DocumentData, addDoc, getDocs, setDoc, doc, updateDoc, increment, FieldValue, Timestamp, serverTimestamp  } = require('firebase-admin/firestore');
+
+// const T_COMMENTS = 'vcomments';
+// const T_CONSUMES = 'vconsumes';
+// const T_ITEMS = 'vitems';
+// const T_PID = 'vpid';
+// const T_USERS = 'vusers';
+
+const PAGE_SIZE = 6;
+const T_COMMENTS = 'vcomments0';
+const T_CONSUMES = 'vconsumes0';
+
+const T_ITEMS = 'vitems0';
+const T_PID = 'vpid0';
+const T_USERS = 'vusers0';
 
 app.get('/', (req, res) => {
     console.log("Good");
@@ -107,8 +119,8 @@ app.post("/v/try2geturl", jsonParser, async function (request,response){
 })
 
 async function getCurrentPid() {
-    const doc = await db.collection('vpid').doc("current").get();
-    //const docRef = db.collection('vpid').doc("current");
+    const doc = await db.collection(T_PID).doc("current").get();
+    //const docRef = db.collection(T_PID).doc("current");
     const data = doc.data();
     console.log(data);
     return data.pid;
@@ -122,7 +134,7 @@ async function getCurrentPid() {
 }
 
 async function setCurrentPid() {
-    const docRef = db.collection('vpid').doc("current");
+    const docRef = db.collection(T_PID).doc("current");
     await docRef.update({"pid": FieldValue.increment(1)});
 
     // try {
@@ -157,7 +169,7 @@ async function getMediasFromLocal(dir) {
         let pid = await getCurrentPid();
         let data = {filename: file, pid: pid, createtime: new Date()}
         console.log(data);
-        const res = await db.collection('vitems').add(data);
+        const res = await db.collection(T_ITEMS).add(data);
         //pid = pid + 1;
         setCurrentPid();
     }
@@ -165,9 +177,9 @@ async function getMediasFromLocal(dir) {
 }
 
 app.post('/v/deleteField', async function (request, response) {
-    const items = await db.collection('vitems').get();
+    const items = await db.collection(T_ITEMS).get();
     items.forEach(item => {
-        const doc = db.collection('vitems').doc(item.id);
+        const doc = db.collection(T_ITEMS).doc(item.id);
 
         doc.update({next:FieldValue.delete()});
     })
@@ -191,7 +203,7 @@ app.post('/v/getFromLocalAndSave2Db', jsonParser, async function (request, respo
 
 
 async function addcomments2db(id, username, nickname, avatar, date, comment) {
-    const res = await db.collection('vcomments').add({
+    const res = await db.collection(T_COMMENTS).add({
         itemId: id,
         username: username,
         nickname: nickname,
@@ -205,7 +217,7 @@ async function addcomments2db(id, username, nickname, avatar, date, comment) {
 let normal = ["😛","😍","😋","😻","🤪"];
 let hot = ["漂亮!", "NICE", "🔥🔥🔥🔥🔥", "受不了了", "建议将声音拉满哦，效果爆表😀", "我喜欢", "我的菜"];
 let sexy = ["我喜欢", "不错", "这...😛😛", "我的菜", "这谁受的了哦", "ying了ying了", "可以", "漂亮", "很好", "够大😛😛😛"];
-let sayes = ["受不了了", "Amazing", "WOW", "NICE", "快..给我箱卫生纸", "一个字就是干", "ying了ying了", "大家不要笑我，我直接把飞机打下来了😜", "大家把音量拉满试试效果😛😛", "大家排好队啊，一个一个来，不要插队","漂亮", "很好", "我喜欢", "我有一个大胆的想法...😆😆😆", "必须把音量拉满🔥🔥🔥"];
+let sayes = ["受不了了", "Amazing", "这谁受的了", "辣身材", "WOW", "NICE", "快..给我箱卫生纸", "一个字就是干", "ying了ying了", "大家不要笑我，我直接把飞机打下来了😜", "大家把音量拉满试试效果😛😛", "大家排好队啊，一个一个来，不要插队","漂亮", "很好", "我喜欢", "我有一个大胆的想法...😆😆😆", "必须把音量拉满🔥🔥🔥"];
 let snake = ["WOW", "NICE", "我喜欢", "不错", "😍😍😍", "我的菜", "当pao架子应该挺不错的"]
 let fresh = ["养眼😍😍😍", "大家不要抢，这个归我啦", "我的菜", "妹子不错", "我喜欢", "我的菜", "漂亮", "很好", "Good"]
 let light = ["跳得不错哦", "跳得不赖😍😍", "音量加大感觉更棒😀", "就是这个调调", "喜欢", "妹子不错"]
@@ -335,7 +347,7 @@ app.post('/v/setags', jsonParser, async function(req, res) {
 
     for (const id of req.body.ids) {
         console.log(id);
-        const docRef = db.collection('vitems').doc(id);
+        const docRef = db.collection(T_ITEMS).doc(id);
 
         const doc = await docRef.get();
         let tags = []
@@ -357,12 +369,12 @@ app.post('/v/setags', jsonParser, async function(req, res) {
 //设置作者
 app.post('/v/setuploader', jsonParser, async function(req, res) {
     console.log(req.body.ids);
-    const userDoc = await db.collection('vusers').doc(req.body.uploader).get();
+    const userDoc = await db.collection(T_USERS).doc(req.body.uploader).get();
     const user = userDoc.data();
 
     for (const key of req.body.ids) {
         console.log(key);
-        const docRef = db.collection('vitems').doc(key);
+        const docRef = db.collection(T_ITEMS).doc(key);
         let nickname = user.nickname != undefined ? user.nickname : "";
         const result = await docRef.set({uploader: {avatar:user.avatar,username:user.username, nickname:nickname }},{merge:true});
     }
@@ -375,7 +387,7 @@ app.post('/v/setcoin', jsonParser, async function(req, res) {
     console.log(req.body.keys);
     for (const key of req.body.keys) {
         console.log(key);
-        const docRef = db.collection('vitems').doc(key);
+        const docRef = db.collection(T_ITEMS).doc(key);
         const result = await docRef.set({coin: req.body.coin},{merge:true});
     }
 
@@ -387,7 +399,7 @@ app.post('/v/setbest', jsonParser, async function(req, res) {
     console.log(req.body.keys);
     for (const key of req.body.keys) {
         console.log(key);
-        const docRef = db.collection('vitems').doc(key);
+        const docRef = db.collection(T_ITEMS).doc(key);
         const result = await docRef.set({isbest: req.body.flag},{merge:true});
     }
 
@@ -422,22 +434,25 @@ var mediaUrlItems = {}
 // ******* 构建轻量级缓存 ************
 
 
+async function getMediaByTag(tag) {
+    if (tagObjects[tag].length == 0) {
+        console.log("Fetch from DB");
+        const vitems = await db.collection(T_ITEMS).where('tags', 'array-contains', tag).orderBy("createtime", "desc").get();
+        vitems.forEach(doc => {
+            //如果不是管理员，跳过status为0的。TODO
+            let data = doc.data();
+            data.id = doc.id;
+            tagObjects[tag].push(data);
+        })
+    }
+}
+
 //根据tag获取，可缓存
 app.post("/v/getMediaByTag", jsonParser, async function(request, response) {
 
     console.log(request.body.tag);
     //console.log(tagObjects["hot"]);
-
-    if(tagObjects[request.body.tag].length == 0) {
-        console.log("Fetch from DB");
-        const vitems = await db.collection('vitems').where('tags', 'array-contains',request.body.tag).orderBy("createtime","desc").get();
-        vitems.forEach(doc => {
-            //如果不是管理员，跳过status为0的。TODO
-            let data = doc.data();
-            data.id = doc.id;
-            tagObjects[request.body.tag].push(data);
-        })
-    }
+    await getMediaByTag(request.body.tag);
     response.json(tagObjects[request.body.tag]);
 })
 
@@ -449,40 +464,93 @@ async function findUrlByKey(key, expire) {
 
     let command = new GetObjectCommand(params);
     const url = await getSignedUrl(s3Client, command, {expiresIn: expire});
-    console.log(url);
+    //console.log(url);
     return url;
 }
 
-//根据id获取doc，同时查询url
-app.post("/v/getMediaById", jsonParser, async function(request,response){
+app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
 
-    const doc = await db.collection('vitems').doc(request.body.id).get();
+    let data = null;
+    let tag = request.body.tag;
+
+    console.log(tag);
+
+    //如果是有tag过滤：则先拉取集合，然后从集合中随机获取一个
+    //如果没有tag过滤：直接到db中获取
+
+    if(tag !== undefined && tag !== '' && tag !== "all") {
+        await getMediaByTag(tag);
+        let items = tagObjects[tag];
+
+        let num = Math.floor(Math.random() * items.length);
+        //let num = 20;
+        console.log(num);
+
+        data = await getMediaById(items[num].id);
+
+    } else {
+        let num = Math.floor(Math.random() * 21);
+        const docs = await db.collection(T_ITEMS).where("pid","<=",num).limit(1).get().then(async querySnapshot => {
+
+            if (!querySnapshot.empty) {
+                let doc = querySnapshot.docs[0];
+                //console.log(doc.id);
+                data = await getMediaById(doc.id);
+            } else {
+                console.log("No document corresponding to the query!");
+            }
+        });
+    }
+
+
+    //确保每一个pid都有哦。否则，获取不到: 需要补偿，手动赋值pid
+    // let query = db.collection(T_ITEMS);
+    // if(tag !== undefined && tag !== '' && tag !== "all") {
+    //     query = db.collection(T_ITEMS).where('tags', 'array-contains', tag);
+    // }
+    // const docs = await query.where("pid","<=",num).limit(1).get().then(async querySnapshot => {
+    //
+    //     if (!querySnapshot.empty) {
+    //         let doc = querySnapshot.docs[0];
+    //         //console.log(doc.id);
+    //         data = await getMediaById(doc.id);
+    //     } else {
+    //         console.log("No document corresponding to the query!");
+    //     }
+    // });
+
+    //console.log(url);
+    response.json(data);
+})
+
+async function getMediaById(id) {
+    const doc = await db.collection(T_ITEMS).doc(id).get();
     //console.log(doc.data());
-    data = doc.data();
-    //console.log(data);
-    if(data != undefined) {
+    let data = doc.data();
+    console.log(data);
+    if (data != undefined) {
 
         data.id = doc.id;
 
         data.vcomments = [];
-        const comments = await db.collection('vcomments').where("itemId","==", data.id).orderBy("createtime","desc").get();
+        const comments = await db.collection(T_COMMENTS).where("itemId", "==", data.id).orderBy("createtime", "desc").get();
         comments.forEach(c => {
             data.vcomments.push(c.data());
         });
 
         let mediaUrl = '';
-        if(mediaUrlItems.hasOwnProperty(data.filename) && mediaUrlItems[data.filename]['expire'] > new Date()) {
+        if (mediaUrlItems.hasOwnProperty(data.filename) && mediaUrlItems[data.filename]['expire'] > new Date()) {
             //console.log("直接获取....")
             //console.log(mediaUrlItems[request.body.key]['expire']);
             mediaUrl = mediaUrlItems[data.filename]['url'];
         } else {
             //console.log("no");
 
-            const url =  await findUrlByKey(data.filename, 3600*24*7);
+            const url = await findUrlByKey(data.filename, 3600 * 24 * 7);
 
             var date = new Date();
             date.setDate(date.getDate() + 7);
-            mediaUrlItems[data.filename] = {expire:date, url:url}
+            mediaUrlItems[data.filename] = {expire: date, url: url}
 
             mediaUrl = url;
         }
@@ -490,28 +558,33 @@ app.post("/v/getMediaById", jsonParser, async function(request,response){
         console.log(mediaUrl);
 
         data.mediaUrl = mediaUrl;
-        data.downloadUrl = await findUrlByKey(data.filename.replace('_','@'), 900);
-        if(data.price != undefined) {
-            data.presecondsUrl = await findUrlByKey(data.filename.replace("_","_p_"), 900);
+        data.downloadUrl = await findUrlByKey(data.filename.replace('_', '@'), 900);
+        if (data.price != undefined) {
+            data.presecondsUrl = await findUrlByKey(data.filename.replace("_", "_p_"), 900);
         }
     }
-    response.json(data);
+    return data;
+}
+
+//根据id获取doc，同时查询url
+app.post("/v/getMediaById", jsonParser, async function(request,response){
+    response.json(await getMediaById(request.body.id));
 })
 
-app.post("/v/download", jsonParser, async function(request,response){
-    request.body.filename = request.body.filename.replace('_','@');
-    console.log(request.body.filename);
-    const params = {
-        Bucket: 'caomeio',
-        Key: request.body.filename
-    }
-
-    let command = new GetObjectCommand(params);
-    const url = await getSignedUrl(s3Client, command);
-    console.log(url);
-
-    response.json({ret:url});
-})
+// app.post("/v/download", jsonParser, async function(request,response){
+//     request.body.filename = request.body.filename.replace('_','@');
+//     console.log(request.body.filename);
+//     const params = {
+//         Bucket: 'caomeio',
+//         Key: request.body.filename
+//     }
+//
+//     let command = new GetObjectCommand(params);
+//     const url = await getSignedUrl(s3Client, command);
+//     console.log(url);
+//
+//     response.json({ret:url});
+// })
 
 function isAdmin(request) {
     let token = request.headers["x-access-token"];
@@ -539,32 +612,41 @@ function isAdmin(request) {
 //分页查询
 app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
 
+    //TODO 缓存每一页，提高性能：直到有更新，刷新缓存。
+    let startT = Date.now();
+
     let admin = isAdmin(request);
-    console.log("admin?");
-    console.log(admin);
+    //console.log("admin?");
+    //console.log(admin);
 
     let currentPid = await getCurrentPid();
-    console.log(currentPid);
+    //console.log(currentPid);
     let pageIndex = request.body.pageIndex;
-    let start = currentPid - (pageIndex-1)*20;
-    let end = start - 20;
+    let start = currentPid - (pageIndex-1) * PAGE_SIZE;
+    let end = start - PAGE_SIZE;
 
     console.log(start);
     console.log(end);
-    const vitems = await db.collection('vitems')
+    const vitems = await db.collection(T_ITEMS)
         .orderBy('pid','desc')
         .startAt(start)
         .endBefore(end)
         .get();
+
+    let endT = Date.now();
+    console.log("1，耗时：" + (endT-startT).toString() );
+
+    startT = Date.now();
     let ret = [];
+
     vitems.forEach(doc => {
         //如果不是管理员，跳过status为0的。
         let data = doc.data();
         data.id = doc.id;
 
         if(data.status != undefined && data.status == 0) {
-            console.log("data.status:");
-            console.log(data.status);
+            //console.log("data.status:");
+            //console.log(data.status);
             if(admin) {
                 ret.push(data);
             }
@@ -572,6 +654,18 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
             ret.push(data);
         }
     })
+    endT = Date.now();
+    console.log("2，耗时：" + (endT-startT).toString() );
+
+    startT = Date.now();
+    for (data of ret) {
+        const url =  await findUrlByKey(data.filename, 3600*24*7);
+        data.videoUrl = url;
+        //console.log(data.videoUrl);
+    }
+    endT = Date.now();
+    console.log("3，耗时：" + (endT-startT).toString() );
+
     response.json(ret);
 })
 
@@ -651,7 +745,7 @@ app.post('/v/deleteAllFromBucket', jsonParser, async function (request, response
         let commandDel = new DeleteObjectCommand(params);
         await s3Client.send(commandDel);
 
-        const docRef = db.collection('vpid').doc("current");
+        const docRef = db.collection(T_PID).doc("current");
         await docRef.update({"pid": FieldValue.increment(-1)});
 
         console.log("Del done");
@@ -697,7 +791,7 @@ app.post('/v/deleteItemByFilename', jsonParser, async function (request, respons
 app.post('/v/deleteItemByKey', jsonParser, async function (request, response)  {
     for (const key of request.body.ids) {
 
-        const doc = await db.collection('vitems').doc(key).get();
+        const doc = await db.collection(T_ITEMS).doc(key).get();
         if(doc.data() != undefined) {
 
             let filename = doc.data().filename;
@@ -717,7 +811,7 @@ app.post('/v/deleteItemByKey', jsonParser, async function (request, response)  {
 
 
             const username = doc.data().uploader.username;
-            const userRef = db.collection('vusers').doc(username);
+            const userRef = db.collection(T_USERS).doc(username);
             const user = await userRef.get();
             let ownedOfUser = []
             if(user.data().owned != undefined) {
@@ -730,7 +824,7 @@ app.post('/v/deleteItemByKey', jsonParser, async function (request, response)  {
             const resultOfUser = await userRef.set({"owned": ownedOfUser},{merge:true});
         }
 
-        const res = await db.collection('vitems').doc(key).delete();
+        const res = await db.collection(T_ITEMS).doc(key).delete();
 
     }
 
@@ -748,8 +842,8 @@ app.post('/v/updatePid', jsonParser, async function (request, response)  {
     normalIds = request.body.normalIds;
     //upgrade: normal -> top
     for (const id of normalIds) {
-        const itemRef = db.collection('vitems').doc(id);
-        const topItemRef = db.collection('vitems').doc(topIds[count]);
+        const itemRef = db.collection(T_ITEMS).doc(id);
+        const topItemRef = db.collection(T_ITEMS).doc(topIds[count]);
         await itemRef.update('pid', topPids[count]);
         await topItemRef.update('pid', normalPids[count]);
         count++;
@@ -763,9 +857,9 @@ app.post('/v/updatePid', jsonParser, async function (request, response)  {
 //新评论
 app.post('/v/newcomments', jsonParser, async function(request, response) {
     request.body.createtime = new Date();
-    const result = await db.collection('vcomments').add(request.body);
+    const result = await db.collection(T_COMMENTS).add(request.body);
 
-    // const itemRef = db.collection('vitems').doc(request.body.id);
+    // const itemRef = db.collection(T_ITEMS).doc(request.body.id);
     // const item = await itemRef.get();
     // let comments = []
     // if(item.data().comments != null) {
@@ -775,7 +869,7 @@ app.post('/v/newcomments', jsonParser, async function(request, response) {
     // comments.push({userId:request.body.userId, userName: request.body.userName, comments: request.body.comments, createtime: date});
     // const result = await itemRef.set({"comments": comments},{merge:true});
     //
-    // const userRef = db.collection('vusers').doc(request.body.userId);
+    // const userRef = db.collection(T_USERS).doc(request.body.userId);
     // const user = await userRef.get();
     // let commentsOfUser = []
     // if(user.data().comments != null) {
@@ -788,7 +882,7 @@ app.post('/v/newcomments', jsonParser, async function(request, response) {
 });
 
 app.post('/v/getusercomments', jsonParser, async function(request, response) {
-    const comments = await db.collection('vcomments').where("username","==",request.body.username).orderBy("createtime","desc").get();
+    const comments = await db.collection(T_COMMENTS).where("username","==",request.body.username).orderBy("createtime","desc").get();
     let vcomments = [];
     comments.forEach(c => {
         data = c.data();
@@ -800,11 +894,11 @@ app.post('/v/getusercomments', jsonParser, async function(request, response) {
 
 //收藏
 app.post('/v/newcollect', jsonParser, async function(request, response) {
-    const itemRef = db.collection('vitems').doc(request.body.id);
+    const itemRef = db.collection(T_ITEMS).doc(request.body.id);
     const item = await itemRef.get();
     const result = await itemRef.update({"stats.favorite": FieldValue.increment(1)});
 
-    const userRef = db.collection('vusers').doc(request.body.username);
+    const userRef = db.collection(T_USERS).doc(request.body.username);
     const user = await userRef.get();
     let favoritesOfUser = []
     if(user.data().favorites != undefined) {
@@ -822,11 +916,17 @@ app.post('/v/newcollect', jsonParser, async function(request, response) {
     response.json({ret:1});
 });
 
+app.post('/v/download', jsonParser, async function(request, response) {
+    const itemRef = db.collection(T_ITEMS).doc(request.body.id);
+    const item = await itemRef.get();
+    const result = await itemRef.update({"stats.download": FieldValue.increment(1)});
+    response.json({ret:1});
+});
 
 app.post('/auth/signin', jsonParser, async function (request, response) {
 
     console.log(request.body);
-    const userRef = db.collection('vusers');
+    const userRef = db.collection(T_USERS);
     const snapshot = await userRef.where('username', '==', request.body.username).where('password', '==', request.body.password).get();
     if (snapshot.empty) {
         console.log('No user match.');
@@ -845,7 +945,7 @@ app.post('/auth/signin', jsonParser, async function (request, response) {
 
 app.post('/auth/signup', jsonParser, async function (request, response) {
     console.log(request.body);
-    const user = await db.collection('vusers').doc(request.body.username).get();
+    const user = await db.collection(T_USERS).doc(request.body.username).get();
     console.log(user.data());
     if(user.data() != undefined) {
         console.log("用户名已存在");
@@ -854,7 +954,13 @@ app.post('/auth/signup', jsonParser, async function (request, response) {
         if(request.body.createtime == undefined) {
             request.body.createtime = new Date();
         }
-        const res = await db.collection('vusers').doc(request.body.username).set(request.body);
+
+        const initPrice = 20;
+        request.body.balance = initPrice;  //注册，赠送20个 TODO 7天内同一个ip不得再次注册
+        const res = await db.collection(T_USERS).doc(request.body.username).set(request.body);
+
+        await db.collection(T_CONSUMES).add({type: 1, username: request.body.username, desc: "新用户注册，赠送", createtime: new Date(), price: initPrice});
+
         response.json({ret:1, message:'注册成功'});
     }
 
@@ -863,7 +969,7 @@ app.post('/auth/signup', jsonParser, async function (request, response) {
 app.post('/v/userdetail', jsonParser, async function (request, response)  {
     //TODO: 验证
 
-    const userDoc = await db.collection('vusers').doc(request.body.username).get();
+    const userDoc = await db.collection(T_USERS).doc(request.body.username).get();
 
     response.json(userDoc.data());
 })
@@ -871,7 +977,9 @@ app.post('/v/userdetail', jsonParser, async function (request, response)  {
 app.post('/v/userupdate', jsonParser, async function (request, response)  {
     //TODO: 验证
 
-    const userRef = db.collection('vusers').doc(request.body.username);
+    //console.log(request.body);
+
+    const userRef = db.collection(T_USERS).doc(request.body.username);
     request.body.updatetime = new Date();
     await userRef.set(request.body,{merge:true});
 
@@ -1027,12 +1135,12 @@ async function add2db(data) {
     if(data.price != undefined && data.price > 0) {
         data.status = 0;
     }
-    const res = await db.collection('vitems').add(data);
+    const res = await db.collection(T_ITEMS).add(data);
     console.log(res.id);
     //pid = pid + 1;
     setCurrentPid(pid);
 
-    const userRef = db.collection('vusers').doc(data.uploader.username);
+    const userRef = db.collection(T_USERS).doc(data.uploader.username);
     const user = await userRef.get();
     let ownedOfUser = []
     if(user.data().owned != undefined) {
@@ -1053,12 +1161,12 @@ app.post('/v/setprice', jsonParser, async function(req, res) {
     console.log(req.body.ids);
     console.log(req.body.priceConfirmed);
     for (const key of req.body.ids) {
-        const docRef = db.collection('vitems').doc(key);
+        const docRef = db.collection(T_ITEMS).doc(key);
         await docRef.update({price:req.body.priceConfirmed, status: 1});
 
         let doc = await docRef.get();
 
-        const userRef = db.collection('vusers').doc(doc.data().uploader.username);
+        const userRef = db.collection(T_USERS).doc(doc.data().uploader.username);
         const user = await userRef.get();
 
         let ownedOfUser = [];
@@ -1230,7 +1338,7 @@ function ffmpeg2Jpg(signedUrl, jpgFilename) {
             console.log('an error happened: ' + err.message);
         })
         .on('end', function () {
-            console.log('gif created!');
+            console.log('jpg created!');
         })
         .on('progress', function (progress) {
             console.log('Processing... ');
@@ -1279,15 +1387,17 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
 
     console.log(filename);
     //let signedUrl = request.body.url;
-    let signedUrl = await findUrlByKey(request.body.filename, 600);
+    let signedUrl = await findUrlByKey(filename, 600);
 
     //let signedUrl = "https://caomeio.gateway.storjshare.io/_goodgirl-123456789.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=jxxpimx7rapd6eg6rqgimfmvh6za%2F20230626%2Fus-1%2Fs3%2Faws4_request&X-Amz-Date=20230626T130037Z&X-Amz-Expires=6000&X-Amz-Signature=68d5abaaa2549839a8796017be3636f7896842c18d50bab09bc2e7fd647df9ef&X-Amz-SignedHeaders=host&x-id=GetObject";
 
     //把stream buffer放到内存，后续多次使用 buffer->stream，转mp4/gif/jpg
     let gifFilename = filename.replace(".mp4",".gif");
     let jpgFilename = filename.replace(".mp4",".jpg");
-
     let watermarkFilename = filename.replace("_","@");
+
+    ffmpeg2Jpg(signedUrl, jpgFilename);
+    ffmpeg2Gif(signedUrl, gifFilename);
 
     if(price != undefined && price > 0) {
         let secondsFilename = filename.replace("_","_p_");
@@ -1297,12 +1407,48 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
         ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds);
     }
     ffmpeg2WaMp4(signedUrl, watermarkFilename);
-    ffmpeg2Gif(signedUrl, gifFilename);
-    ffmpeg2Jpg(signedUrl, jpgFilename);
+
+    console.log("Here!");
 
     response.json({ret:1});
 
 })
+
+app.post("/v/turnfree2priced", jsonParser, async function(request, response) {
+    let seconds = request.body.preseconds;
+    let price = request.body.price;
+
+    //更新
+    const docRef = db.collection(T_ITEMS).doc(request.body.ids[0]);
+    await docRef.set({"preseconds":seconds, "price": price, "status": 1},{merge:true});
+
+    const doc = await docRef.get();
+    let filename = doc.data().filename;
+    console.log(filename);
+
+    //let signedUrl = request.body.url;
+    let signedUrl = await findUrlByKey(filename, 600);
+
+    //let signedUrl = "https://caomeio.gateway.storjshare.io/_goodgirl-123456789.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=jxxpimx7rapd6eg6rqgimfmvh6za%2F20230626%2Fus-1%2Fs3%2Faws4_request&X-Amz-Date=20230626T130037Z&X-Amz-Expires=6000&X-Amz-Signature=68d5abaaa2549839a8796017be3636f7896842c18d50bab09bc2e7fd647df9ef&X-Amz-SignedHeaders=host&x-id=GetObject";
+
+    //把stream buffer放到内存，后续多次使用 buffer->stream，转mp4/gif/jpg
+
+    let watermarkFilename = filename.replace("_","@");
+
+    if(price != undefined && price > 0) {
+        let secondsFilename = filename.replace("_","_p_");
+        //如果有设置price
+        //截取前几秒，put到s3
+        ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds);
+    }
+    ffmpeg2WaMp4(signedUrl, watermarkFilename);
+
+    console.log("Here!");
+
+    response.json({ret:1});
+
+})
+
 
 const cp = require('child_process');
 app.post("/v/uploadtest", jsonParser,async function(request, response) {
@@ -1386,7 +1532,7 @@ app.post("/v/userupload", upload.single('file'), function(req, res) {
 
 app.post("/v/checkconsumed", jsonParser, async function(request, response) {
     let ret = -1;
-    const vconsumes = await db.collection('vconsumes').where("id","==",request.body.id).where("username","==",request.body.username).get();
+    const vconsumes = await db.collection(T_CONSUMES).where("id","==",request.body.id).where("username","==",request.body.username).get();
     if(vconsumes.size > 0) {
         ret = 1;
     } else {
@@ -1397,26 +1543,31 @@ app.post("/v/checkconsumed", jsonParser, async function(request, response) {
 
 app.post("/v/userconsume", jsonParser, async function(request, response) {
     let ret = -1;
-    const vconsumes = await db.collection('vconsumes').where("id","==",request.body.id).where("username","==",request.body.username).get();
-    if(vconsumes.size > 0) {
+    let balance = -1;
+    const vconsumes = await db.collection(T_CONSUMES).where("id","==",request.body.id).where("username","==",request.body.username).get();
+    if(vconsumes.size > 0) {             //如果之前已购买，则不需要重复消费
         ret = 1;
     } else {
-        const userRef = db.collection('vusers').doc(request.body.username);
+        const userRef = db.collection(T_USERS).doc(request.body.username);
         const userDoc = await userRef.get();
         if(userDoc.data().balance != undefined && userDoc.data().balance >= request.body.price) {
-            //consume
-            //如果之前已购买，则不需要重复消费
-            const vconsumes = await db.collection('vconsumes').where("id","==",request.body.id).where("username","==",request.body.username).get();
-            await userRef.update({balance: userDoc.data().balance - request.body.price});
+            const vconsumes = await db.collection(T_CONSUMES).where("id","==",request.body.id).where("username","==",request.body.username).get();
+            balance = userDoc.data().balance - request.body.price;
+            await userRef.update({balance: balance});
             request.body.createtime = new Date();
-            const result = await db.collection('vconsumes').add(request.body);
+            request.body.type = 0;
+            const result = await db.collection(T_CONSUMES).add(request.body);
 
             ret = 1;
-        } else {
+        } else {    //余额不足
             ret = 0;
         }
     }
-    response.json({ret:ret});
+    let data = {ret:ret};
+    if(balance > -1) {
+        data.balance = balance;
+    }
+    response.json(data);
 })
 
 app.post("/v/avatarupload", upload.single('image'), function(req, res) {
@@ -1426,7 +1577,7 @@ app.post("/v/avatarupload", upload.single('image'), function(req, res) {
 
 app.post("/v/useraccount", jsonParser, async function(request, response) {
 
-    const userRef = db.collection('vusers').doc(request.body.username);
+    const userRef = db.collection(T_USERS).doc(request.body.username);
     const user = await userRef.get();
 
     let list = []
@@ -1436,9 +1587,9 @@ app.post("/v/useraccount", jsonParser, async function(request, response) {
         });
     }
 
-    const vconsumes = await db.collection('vconsumes').where("username","==",request.body.username).get();
+    const vconsumes = await db.collection(T_CONSUMES).where("username","==",request.body.username).get();
     vconsumes.forEach(c => {
-        list.push({type: 0, createtime: c.data().createtime, itemId: c.data().id, price: c.data().price});
+        list.push({type: c.data().type != undefined ? c.data().type : 0, createtime: c.data().createtime, itemId: c.data().id, price: c.data().price, desc: c.data().desc != undefined ? c.data().desc : null });
     });
 
     response.json(list);
