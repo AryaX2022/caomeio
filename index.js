@@ -14,6 +14,16 @@ var AWS = require('aws-sdk');
 const {Readable, PassThrough } = require('stream');
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
+
+var nodemailer = require('nodemailer');
+var transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: '6983299@gmail.com',
+        pass: process.env.GMAIL_PWD
+    }
+});
+
 let destFolder = "uploads/";
 //let destFolder = "/tmp/";   //render.com不支持本地文件存储 TODO：ffmpeg 获取stream，然后处理。
 
@@ -36,7 +46,7 @@ const path = require('path');
 const s3Client = new S3Client({
     credentials: {
         accessKeyId: "jxxpimx7rapd6eg6rqgimfmvh6za",
-        secretAccessKey: "j2ns2h5er2o5zj2y4mpxp4tn5ycvbx2dvlp67fubif4e6vnm2vxoc",
+        secretAccessKey: process.env.S3_KEY,
     },
     region: "us-1",
     endpoint: "https://gateway.storjshare.io",
@@ -44,7 +54,7 @@ const s3Client = new S3Client({
 
 const s3 = new AWS.S3({
     accessKeyId: "jxxpimx7rapd6eg6rqgimfmvh6za",
-    secretAccessKey: "j2ns2h5er2o5zj2y4mpxp4tn5ycvbx2dvlp67fubif4e6vnm2vxoc",
+    secretAccessKey: process.env.S3_KEY,
     endpoint: "https://gateway.storjshare.io",
 });
 
@@ -600,8 +610,8 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
     let startT = Date.now();
 
     let admin = isAdmin(request);
-    //console.log("admin?");
-    //console.log(admin);
+    console.log("admin?");
+    console.log(admin);
 
     let currentPid = await getCurrentPid();
     //console.log(currentPid);
@@ -619,6 +629,7 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
 
     let endT = Date.now();
     console.log("1，耗时：" + (endT-startT).toString() );
+    console.log("获取到文档个数:" + vitems.size);
 
     startT = Date.now();
     let ret = [];
@@ -627,6 +638,8 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
         //如果不是管理员，跳过status为0的。
         let data = doc.data();
         data.id = doc.id;
+
+        console.log(data);
 
         if(data.status != undefined && data.status == 0) {
             //console.log("data.status:");
@@ -640,15 +653,6 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
     })
     endT = Date.now();
     console.log("2，耗时：" + (endT-startT).toString() );
-
-    // startT = Date.now();
-    // for (data of ret) {
-    //     const url =  await findUrlByKey(data.filename, 3600*24*7);
-    //     data.videoUrl = url;
-    //     //console.log(data.videoUrl);
-    // }
-    // endT = Date.now();
-    // console.log("3，耗时：" + (endT-startT).toString() );
 
     response.json(ret);
 })
@@ -1366,6 +1370,23 @@ function ffmpeg2WaMp4(signedUrl, watermarkFilename) {
 
 }
 
+function sendemail2me(text) {
+    var mailOptions = {
+        from: '6983299@gmail.com',
+        to: '6983299x@gmail.com',
+        subject: '用户上传',
+        text: text
+    };
+
+    transporter.sendMail(mailOptions, function(error, info){
+        if (error) {
+            console.log(error);
+        } else {
+            console.log('Email sent: ' + info.response);
+        }
+    });
+}
+
 app.post("/v/afterupload", jsonParser, async function(request, response) {
     let filename = request.body.filename;
     let price = request.body.price;
@@ -1395,6 +1416,8 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
         ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds);
     }
     ffmpeg2WaMp4(signedUrl, watermarkFilename);
+
+    sendemail2me("文件已上传：" + filename);
 
     console.log("Here!");
 
