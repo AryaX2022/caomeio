@@ -489,8 +489,10 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
         data = await getMediaById(items[num].id);
 
     } else {
-        let num = Math.floor(Math.random() * 21);
-        const docs = await db.collection(T_ITEMS).where("pid","<=",num).limit(1).get().then(async querySnapshot => {
+        let currentPid = await getCurrentPid();
+        let num = Math.floor(Math.random() * currentPid);
+        //console.log("随机数:" + num.toString());
+        const docs = await db.collection(T_ITEMS).where("pid","<=",num).orderBy("pid","desc").limit(1).get().then(async querySnapshot => {
 
             if (!querySnapshot.empty) {
                 let doc = querySnapshot.docs[0];
@@ -502,24 +504,6 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
         });
     }
 
-
-    //确保每一个pid都有哦。否则，获取不到: 需要补偿，手动赋值pid
-    // let query = db.collection(T_ITEMS);
-    // if(tag !== undefined && tag !== '' && tag !== "all") {
-    //     query = db.collection(T_ITEMS).where('tags', 'array-contains', tag);
-    // }
-    // const docs = await query.where("pid","<=",num).limit(1).get().then(async querySnapshot => {
-    //
-    //     if (!querySnapshot.empty) {
-    //         let doc = querySnapshot.docs[0];
-    //         //console.log(doc.id);
-    //         data = await getMediaById(doc.id);
-    //     } else {
-    //         console.log("No document corresponding to the query!");
-    //     }
-    // });
-
-    //console.log(url);
     response.json(data);
 })
 
@@ -657,14 +641,14 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
     endT = Date.now();
     console.log("2，耗时：" + (endT-startT).toString() );
 
-    startT = Date.now();
-    for (data of ret) {
-        const url =  await findUrlByKey(data.filename, 3600*24*7);
-        data.videoUrl = url;
-        //console.log(data.videoUrl);
-    }
-    endT = Date.now();
-    console.log("3，耗时：" + (endT-startT).toString() );
+    // startT = Date.now();
+    // for (data of ret) {
+    //     const url =  await findUrlByKey(data.filename, 3600*24*7);
+    //     data.videoUrl = url;
+    //     //console.log(data.videoUrl);
+    // }
+    // endT = Date.now();
+    // console.log("3，耗时：" + (endT-startT).toString() );
 
     response.json(ret);
 })
@@ -767,10 +751,13 @@ async function s3del(key) {
 }
 
 app.post('/v/deleteItemByFilename', jsonParser, async function (request, response)  {
+    console.log(request.body.filenames);
     for (const filename of request.body.filenames) {
         console.log(filename);
 
         s3del(filename);
+        console.log(filename + " deleted");
+
         let jpgfilename = filename.replace(".mp4",".jpg");
         s3del(jpgfilename);
         let giffilename = filename.replace(".mp4",".gif");
@@ -917,6 +904,7 @@ app.post('/v/newcollect', jsonParser, async function(request, response) {
 });
 
 app.post('/v/download', jsonParser, async function(request, response) {
+    //个人下载限制
     const itemRef = db.collection(T_ITEMS).doc(request.body.id);
     const item = await itemRef.get();
     const result = await itemRef.update({"stats.download": FieldValue.increment(1)});
