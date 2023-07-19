@@ -439,12 +439,18 @@ let tagObjects = {
     "attr": attrItems,
 }
 
+let pagedObjects = {}
+
 var mediaUrlItems = {}
 
 // ******* 构建轻量级缓存 ************
 
 
-async function getMediaByTag(tag) {
+//根据tag获取，可缓存
+app.post("/v/getMediaByTag", jsonParser, async function(request, response) {
+    console.log(request.body.tag);
+    let tag = request.body.tag;
+    let admin = isAdmin(request);
     if (tagObjects[tag].length == 0) {
         console.log("Fetch from DB");
         const vitems = await db.collection(T_ITEMS).where('tags', 'array-contains', tag).orderBy("createtime", "desc").get();
@@ -452,17 +458,17 @@ async function getMediaByTag(tag) {
             //如果不是管理员，跳过status为0的。TODO
             let data = doc.data();
             data.id = doc.id;
-            tagObjects[tag].push(data);
+
+            if(data.status != undefined && data.status == 0) {
+                if(admin) {
+                    tagObjects[tag].push(data);
+                }
+            } else {
+                tagObjects[tag].push(data);
+            }
+
         })
     }
-}
-
-//根据tag获取，可缓存
-app.post("/v/getMediaByTag", jsonParser, async function(request, response) {
-
-    console.log(request.body.tag);
-    //console.log(tagObjects["hot"]);
-    await getMediaByTag(request.body.tag);
     response.json(tagObjects[request.body.tag]);
 })
 
@@ -483,6 +489,8 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
     let data = null;
     let tag = request.body.tag;
 
+    let lastPid = request.body.pid;
+
     console.log(tag);
 
     //如果是有tag过滤：则先拉取集合，然后从集合中随机获取一个
@@ -500,9 +508,10 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
 
     } else {
         let currentPid = await getCurrentPid();
-        let num = Math.floor(Math.random() * currentPid);
+        let num = Math.floor(Math.random() * currentPid);   //随机吧
+        //let num = request.body.pid != undefined ? request.body.pid : currentPid;
         //console.log("随机数:" + num.toString());
-        const docs = await db.collection(T_ITEMS).where("pid","<=",num).orderBy("pid","desc").limit(1).get().then(async querySnapshot => {
+        const docs = await db.collection(T_ITEMS).where("pid","<",num).orderBy("pid","desc").limit(1).get().then(async querySnapshot => {
 
             if (!querySnapshot.empty) {
                 let doc = querySnapshot.docs[0];
@@ -582,6 +591,8 @@ app.post("/v/getMediaById", jsonParser, async function(request,response){
 
 function isAdmin(request) {
     let token = request.headers["x-access-token"];
+    //console.log("token:");
+    //console.log(token);
 
     if (!token) {
         return false;
@@ -605,54 +616,64 @@ function isAdmin(request) {
 
 //分页查询
 app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
-
-    //TODO 缓存每一页，提高性能：直到有更新，刷新缓存。
-    let startT = Date.now();
+    let pageIndex = request.body.pageIndex;
+    let ret = [];
 
     let admin = isAdmin(request);
     console.log("admin?");
     console.log(admin);
 
-    let currentPid = await getCurrentPid();
-    //console.log(currentPid);
-    let pageIndex = request.body.pageIndex;
-    let start = currentPid - (pageIndex-1) * PAGE_SIZE;
-    let end = start - PAGE_SIZE;
+    let pageKey = "PAGE" + pageIndex.toString();
+    if(pagedObjects.hasOwnProperty(pageKey) && !admin) {    //如果是admin，那么每次从db中获取，不走缓存
+        console.log("从pagedObjects获取:" + pageKey);
+        ret = pagedObjects[pageKey];
+    } else {
+        let startT = Date.now();
 
-    console.log(start);
-    console.log(end);
-    const vitems = await db.collection(T_ITEMS)
-        .orderBy('pid','desc')
-        .startAt(start)
-        .endBefore(end)
-        .get();
+        console.log("admin?");
+        console.log(admin);
 
-    let endT = Date.now();
-    console.log("1，耗时：" + (endT-startT).toString() );
-    console.log("获取到文档个数:" + vitems.size);
+        let currentPid = await getCurrentPid();
+        //console.log(currentPid);
 
-    startT = Date.now();
-    let ret = [];
+        let start = currentPid - (pageIndex-1) * PAGE_SIZE;
+        let end = start - PAGE_SIZE;
 
-    vitems.forEach(doc => {
-        //如果不是管理员，跳过status为0的。
-        let data = doc.data();
-        data.id = doc.id;
+        console.log(start);
+        console.log(end);
+        const vitems = await db.collection(T_ITEMS)
+            .orderBy('pid','desc')
+            .startAt(start)
+            .endBefore(end)
+            .get();
 
-        console.log(data);
+        let endT = Date.now();
+        console.log("1，耗时：" + (endT-startT).toString() );
+        console.log("获取到文档个数:" + vitems.size);
 
-        if(data.status != undefined && data.status == 0) {
-            //console.log("data.status:");
-            //console.log(data.status);
-            if(admin) {
+        startT = Date.now();
+
+
+        vitems.forEach(doc => {
+            //如果不是管理员，跳过status为0的。
+            let data = doc.data();
+            data.id = doc.id;
+
+            //console.log(data);
+
+            if(data.status != undefined && data.status == 0) {
+                if(admin) {
+                    ret.push(data);
+                }
+            } else {
                 ret.push(data);
             }
-        } else {
-            ret.push(data);
-        }
-    })
-    endT = Date.now();
-    console.log("2，耗时：" + (endT-startT).toString() );
+        })
+        endT = Date.now();
+        console.log("2，耗时：" + (endT-startT).toString() );
+
+        pagedObjects[pageKey] = ret;
+    }
 
     response.json(ret);
 })
@@ -937,24 +958,49 @@ app.post('/auth/signin', jsonParser, async function (request, response) {
 
 app.post('/auth/signup', jsonParser, async function (request, response) {
     console.log(request.body);
+
+    let pass = true;
+
     const user = await db.collection(T_USERS).doc(request.body.username).get();
-    console.log(user.data());
+    const userByIpQuery = await db.collection(T_USERS).where("ip","==",request.body.ip).orderBy("createtime","desc").get();
+
+
     if(user.data() != undefined) {
         console.log("用户名已存在");
+        pass = false;
         response.json({ret:0, message: '用户名已存在'});
-    } else {
+    }
+
+    if(userByIpQuery.size > 0) {
+        // 1天内同一个ip不得再次注册
+        let userByIp = userByIpQuery.docs[0].data();
+        console.log(userByIp.createtime);
+        let createtime = new Date(userByIp.createtime._seconds*1000);
+        const now = new Date();
+        if(createtime.getDate() === now.getDate() && createtime.getMonth() === now.getMonth() && createtime.getFullYear() === now.getFullYear()) {
+            pass = false;
+            response.json({ret:0, message: '今天，该IP地址已注册过啦，明天再来吧'});
+        }
+    }
+
+    if(pass) {
+
         if(request.body.createtime == undefined) {
             request.body.createtime = new Date();
         }
 
         const initPrice = 20;
-        request.body.balance = initPrice;  //注册，赠送20个 TODO 7天内同一个ip不得再次注册
+        request.body.balance = initPrice;  //注册，赠送20个
+
+
         const res = await db.collection(T_USERS).doc(request.body.username).set(request.body);
 
         await db.collection(T_CONSUMES).add({type: 1, username: request.body.username, desc: "新用户注册，赠送", createtime: new Date(), price: initPrice});
 
         response.json({ret:1, message:'注册成功'});
+
     }
+
 
 });
 
@@ -1177,6 +1223,9 @@ app.post('/v/setprice', jsonParser, async function(req, res) {
 
         const resultOfUser = await userRef.set({"owned": ownedOfUser, "balance": balance},{merge:true});
     }
+
+    //更新缓存 TODO
+
     res.json({ret:1});
 
 })
@@ -1370,11 +1419,11 @@ function ffmpeg2WaMp4(signedUrl, watermarkFilename) {
 
 }
 
-function sendemail2me(text) {
+function sendemail2me(subject, text) {
     var mailOptions = {
         from: '6983299@gmail.com',
-        to: '6983299x@gmail.com',
-        subject: '用户上传',
+        to: 'x6983299@outlook.com',
+        subject: subject,
         text: text
     };
 
@@ -1417,7 +1466,7 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
     }
     ffmpeg2WaMp4(signedUrl, watermarkFilename);
 
-    sendemail2me("文件已上传：" + filename);
+    sendemail2me("用户上传", "文件已上传：" + filename);
 
     console.log("Here!");
 
