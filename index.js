@@ -1018,7 +1018,7 @@ app.post('/v/createpayment', jsonParser, async function(request, response) {
         bizContent: {
             out_trade_no: request.body.out_trade_no,
             total_amount: request.body.total_amount,
-            subject: '订单' + request.body.tradeNo,
+            subject: '订单' + request.body.out_trade_no,
         }
     });
     let data = request.body;
@@ -1033,7 +1033,7 @@ app.post('/v/createpayment', jsonParser, async function(request, response) {
 })
 
 app.post('/v/querypayment', jsonParser, async function(request, response) {
-    let tradeNo = request.body.tradeNo;
+    let tradeNo = request.body.out_trade_no;
     const result = await alipaySdk.exec('alipay.trade.query', {
         bizContent: {
             out_trade_no: tradeNo,
@@ -1044,7 +1044,7 @@ app.post('/v/querypayment', jsonParser, async function(request, response) {
 })
 
 app.post('/v/afterpayment', async function(request, response) {
-    console.log(request.body);
+    //console.log(request.body);
     console.log(request.body.out_trade_no);
     console.log(request.body.trade_status);
     console.log(request.body.total_amount);
@@ -1060,7 +1060,7 @@ app.post('/v/afterpayment', async function(request, response) {
         buyer_pay_amount: request.body.buyer_pay_amount
     }, {merge: true});
 
-    if(request.query.trade_status === "TRADE_SUCCESS") {
+    if(request.body.trade_status === "TRADE_SUCCESS") {
         let payDoc = await paymentRef.get();
 
         const userRef = db.collection(T_USERS).doc(payDoc.data().username);
