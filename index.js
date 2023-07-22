@@ -15,6 +15,16 @@ const {Readable, PassThrough } = require('stream');
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
 
+const AlipaySdk = require('alipay-sdk').default;
+// TypeScript，可以使用 import AlipaySdk from 'alipay-sdk';
+// 普通公钥模式
+const alipaySdk = new AlipaySdk({
+    appId: '2021004105625781',
+    // keyType: 'PKCS1', // 默认值。请与生成的密钥格式保持一致，参考平台配置一节
+    privateKey: process.env.ALI_PRV_KEY,
+    alipayPublicKey: process.env.ALI_PBL_KEY,
+});
+
 var nodemailer = require('nodemailer');
 var transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -443,7 +453,48 @@ let pagedObjects = {}
 
 var mediaUrlItems = {}
 
-// ******* 构建轻量级缓存 ************
+function isAdmin(request) {
+    let token = request.headers["x-access-token"];
+    //console.log("token:");
+    //console.log(token);
+
+    if (!token) {
+        return false;
+    }
+
+    return jwt.verify(token, secret, (err, decoded) => {
+        if (err) {
+            return false;
+        }
+        console.log("decoded.id:");
+        console.log(decoded.id);
+        if(decoded.id === "admin") {
+            console.log("yes");
+            return true;
+        } else {
+            console.log("no");
+            return false;
+        }
+    });
+}
+
+
+async function findUrlByKey(key, expire) {
+    const params = {
+        Bucket: 'caomeio',
+        Key: key
+    }
+
+    let command = new GetObjectCommand(params);
+    const url = await getSignedUrl(s3Client, command, {expiresIn: expire});
+    //console.log(url);
+    return url;
+}
+
+app.post("/v/getByKey", jsonParser, async function (req, res) {
+    let url = await findUrlByKey(req.body.key, 60);
+    res.json({ret: url});
+})
 
 
 //根据tag获取，可缓存
@@ -471,18 +522,6 @@ app.post("/v/getMediaByTag", jsonParser, async function(request, response) {
     }
     response.json(tagObjects[request.body.tag]);
 })
-
-async function findUrlByKey(key, expire) {
-    const params = {
-        Bucket: 'caomeio',
-        Key: key
-    }
-
-    let command = new GetObjectCommand(params);
-    const url = await getSignedUrl(s3Client, command, {expiresIn: expire});
-    //console.log(url);
-    return url;
-}
 
 app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
 
@@ -527,10 +566,12 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
 })
 
 async function getMediaById(id) {
+    let startT = Date.now();
+
     const doc = await db.collection(T_ITEMS).doc(id).get();
     //console.log(doc.data());
     let data = doc.data();
-    console.log(data);
+    //console.log(data);
     if (data != undefined) {
 
         data.id = doc.id;
@@ -541,31 +582,15 @@ async function getMediaById(id) {
             data.vcomments.push(c.data());
         });
 
-        let mediaUrl = '';
-        if (mediaUrlItems.hasOwnProperty(data.filename) && mediaUrlItems[data.filename]['expire'] > new Date()) {
-            //console.log("直接获取....")
-            //console.log(mediaUrlItems[request.body.key]['expire']);
-            mediaUrl = mediaUrlItems[data.filename]['url'];
-        } else {
-            //console.log("no");
-
-            const url = await findUrlByKey(data.filename, 3600 * 24 * 7);
-
-            var date = new Date();
-            date.setDate(date.getDate() + 7);
-            mediaUrlItems[data.filename] = {expire: date, url: url}
-
-            mediaUrl = url;
-        }
-
-        console.log(mediaUrl);
-
-        data.mediaUrl = mediaUrl;
-        data.downloadUrl = await findUrlByKey(data.filename.replace('_', '@'), 900);
+        data.mediaUrl = await findUrlByKey(data.filename, 60);
+        data.downloadUrl = await findUrlByKey(data.filename.replace('_', '@'), 60);
         if (data.price != undefined) {
-            data.presecondsUrl = await findUrlByKey(data.filename.replace("_", "_p_"), 900);
+            data.presecondsUrl = await findUrlByKey(data.filename.replace("_", "_p_"), 60);
         }
     }
+
+    let endT = Date.now();
+    console.log("耗时：" + (endT-startT).toString() );
     return data;
 }
 
@@ -589,30 +614,6 @@ app.post("/v/getMediaById", jsonParser, async function(request,response){
 //     response.json({ret:url});
 // })
 
-function isAdmin(request) {
-    let token = request.headers["x-access-token"];
-    //console.log("token:");
-    //console.log(token);
-
-    if (!token) {
-        return false;
-    }
-
-    return jwt.verify(token, secret, (err, decoded) => {
-        if (err) {
-            return false;
-        }
-        console.log("decoded.id:");
-        console.log(decoded.id);
-        if(decoded.id === "admin") {
-            console.log("yes");
-            return true;
-        } else {
-            console.log("no");
-            return false;
-        }
-    });
-}
 
 //分页查询
 app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
@@ -629,9 +630,6 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
         ret = pagedObjects[pageKey];
     } else {
         let startT = Date.now();
-
-        console.log("admin?");
-        console.log(admin);
 
         let currentPid = await getCurrentPid();
         //console.log(currentPid);
@@ -672,7 +670,10 @@ app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
         endT = Date.now();
         console.log("2，耗时：" + (endT-startT).toString() );
 
-        pagedObjects[pageKey] = ret;
+        //admin获取的数据列表，不加入缓存！
+        if(!admin) {
+            pagedObjects[pageKey] = ret;
+        }
     }
 
     response.json(ret);
@@ -1004,6 +1005,37 @@ app.post('/auth/signup', jsonParser, async function (request, response) {
 
 });
 
+app.post('/v/createpayment', jsonParser, async function(request, response) {
+
+    const result = await alipaySdk.exec('alipay.trade.precreate', {
+        notify_url: 'https://caomeiyo.onrender.com/v/afterpayment', // 通知回调地址
+        bizContent: {
+            out_trade_no: request.body.tradeNo,
+            total_amount: request.body.amount,
+            subject: '订单' + request.body.tradeNo,
+        }
+    });
+    console.log(result);
+    response.json({ret:result});
+})
+
+app.post('/v/querypayment', jsonParser, async function(request, response) {
+    let tradeNo = request.body.tradeNo;
+    const result = await alipaySdk.exec('alipay.trade.query', {
+        notify_url: 'https://caomeiyo.onrender.com/v/afterpayment', // 通知回调地址
+        bizContent: {
+            out_trade_no: tradeNo,
+        }
+    });
+    console.log(result);
+    response.json({ret:result});
+})
+
+app.post('/v/afterpayment', jsonParser, async function(request, response) {
+    console.log(request.body);
+    response.json({ret:1});
+})
+
 app.post('/v/userdetail', jsonParser, async function (request, response)  {
     //TODO: 验证
 
@@ -1222,17 +1254,20 @@ app.post('/v/setprice', jsonParser, async function(req, res) {
         }
 
         const resultOfUser = await userRef.set({"owned": ownedOfUser, "balance": balance},{merge:true});
-    }
 
-    //更新缓存 TODO
+        //把项目加入到缓存
+        if(pagedObjects.hasOwnProperty("PAGE1")) {
+            let data = doc.data();
+            data.id = doc.id;
+            pagedObjects["PAGE1"].push(data);
+            data.tags.forEach(t => {
+                tagObjects[t].push(data);
+            });
+        }
+    }
 
     res.json({ret:1});
 
-})
-
-app.post("/v/getByKey", jsonParser, async function (req, res) {
-    let url = await findUrlByKey(req.body.key, 6000);
-    res.json({ret: url});
 })
 
 app.post("/v/ffmpegjs", async function(request, response) {
@@ -1572,6 +1607,8 @@ app.post("/v/userupload", upload.single('file'), function(req, res) {
         //截取前几秒，put到s3
         cutPreSeconds4Mp4(filename, newfilename, seconds);
     }
+
+    //如果无需price则自动通过，刷新缓存
 
     //db
     add2db(data);
