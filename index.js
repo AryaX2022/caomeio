@@ -1038,7 +1038,7 @@ app.post('/v/querypayment', jsonParser, async function(request, response) {
     response.json({ret:result});
 })
 
-app.post('/v/afterpayment', jsonParser, async function(request, response) {
+app.post('/v/afterpayment', async function(request, response) {
     console.log(request.body);
     console.log(request.body.out_trade_no);
     console.log(request.body.trade_status);
