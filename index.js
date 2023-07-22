@@ -120,6 +120,7 @@ const T_CONSUMES = 'vconsumes0';
 const T_ITEMS = 'vitems0';
 const T_PID = 'vpid0';
 const T_USERS = 'vusers0';
+const T_PAYMENTS = 'vpayment0';
 
 app.get('/', (req, res) => {
     console.log("Good");
@@ -1010,11 +1011,17 @@ app.post('/v/createpayment', jsonParser, async function(request, response) {
     const result = await alipaySdk.exec('alipay.trade.precreate', {
         notify_url: 'https://caomeiyo.onrender.com/v/afterpayment', // 通知回调地址
         bizContent: {
-            out_trade_no: request.body.tradeNo,
-            total_amount: request.body.amount,
+            out_trade_no: request.body.out_trade_no,
+            total_amount: request.body.total_amount,
             subject: '订单' + request.body.tradeNo,
         }
     });
+    let data = request.body;
+    data.status = "WAIT_BUYER_PAY";
+    data.createtime = new Date();
+
+    await db.collection(T_PAYMENTS).doc(request.body.out_trade_no).set(data);
+
     console.log(result);
     response.json({ret:result});
 })
@@ -1031,8 +1038,40 @@ app.post('/v/querypayment', jsonParser, async function(request, response) {
     response.json({ret:result});
 })
 
-app.post('/v/afterpayment', jsonParser, async function(request, response) {
-    console.log(request.body);
+app.get('/v/afterpayment', jsonParser, async function(request, response) {
+    console.log(request.query.out_trade_no);
+    console.log(request.query.trade_status);
+    console.log(request.query.total_amount);
+    console.log(request.query.buyer_pay_amount);
+    console.log(request.query.gmt_create);
+    console.log(request.query.gmt_payment);
+
+    const paymentRef = db.collection(T_PAYMENTS).doc(request.query.out_trade_no);
+
+    await paymentRef.set({
+        status: request.query.trade_status,
+        gmt_payment: request.query.gmt_payment,
+        buyer_pay_amount: request.query.buyer_pay_amount
+    }, {merge: true});
+
+    if(request.query.trade_status === "TRADE_SUCCESS") {
+        let payDoc = await paymentRef.get();
+
+        const userRef = db.collection(T_USERS).doc(payDoc.data().username);
+        const user = await userRef.get();
+
+        //购买了商品6: 无限。SVIP。
+        if(payDoc.data().prd == 6) {
+            await userRef.set({"svip": true},{merge:true});
+        } else {
+            if(user.data().balance != undefined) {
+                await userRef.set({"balance": user.data().balance + payDoc.data().cmnum},{merge:true});
+            }
+            await db.collection(T_CONSUMES).add({type: 1, username: payDoc.data().username, desc: "用户购买", createtime: new Date(), price: payDoc.data().cmnum});
+        }
+
+    }
+
     response.json({ret:1});
 })
 
