@@ -1030,7 +1030,6 @@ app.post('/v/createpayment', jsonParser, async function(request, response) {
 app.post('/v/querypayment', jsonParser, async function(request, response) {
     let tradeNo = request.body.tradeNo;
     const result = await alipaySdk.exec('alipay.trade.query', {
-        notify_url: 'https://caomeiyo.onrender.com/v/afterpayment', // 通知回调地址
         bizContent: {
             out_trade_no: tradeNo,
         }
@@ -1039,20 +1038,21 @@ app.post('/v/querypayment', jsonParser, async function(request, response) {
     response.json({ret:result});
 })
 
-app.get('/v/afterpayment', jsonParser, async function(request, response) {
-    console.log(request.query.out_trade_no);
-    console.log(request.query.trade_status);
-    console.log(request.query.total_amount);
-    console.log(request.query.buyer_pay_amount);
-    console.log(request.query.gmt_create);
-    console.log(request.query.gmt_payment);
+app.post('/v/afterpayment', jsonParser, async function(request, response) {
+    console.log(request.body);
+    console.log(request.body.out_trade_no);
+    console.log(request.body.trade_status);
+    console.log(request.body.total_amount);
+    console.log(request.body.buyer_pay_amount);
+    console.log(request.body.gmt_create);
+    console.log(request.body.gmt_payment);
 
-    const paymentRef = db.collection(T_PAYMENTS).doc(request.query.out_trade_no);
+    const paymentRef = db.collection(T_PAYMENTS).doc(request.body.out_trade_no);
 
     await paymentRef.set({
-        status: request.query.trade_status,
-        gmt_payment: request.query.gmt_payment,
-        buyer_pay_amount: request.query.buyer_pay_amount
+        status: request.body.trade_status,
+        gmt_payment: request.body.gmt_payment,
+        buyer_pay_amount: request.body.buyer_pay_amount
     }, {merge: true});
 
     if(request.query.trade_status === "TRADE_SUCCESS") {
