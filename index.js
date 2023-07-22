@@ -1020,6 +1020,7 @@ app.post('/v/createpayment', jsonParser, async function(request, response) {
     data.status = "WAIT_BUYER_PAY";
     data.createtime = new Date();
 
+    console.log(request.body.out_trade_no);
     await db.collection(T_PAYMENTS).doc(request.body.out_trade_no).set(data);
 
     console.log(result);
@@ -1064,6 +1065,7 @@ app.get('/v/afterpayment', jsonParser, async function(request, response) {
         if(payDoc.data().prd == 6) {
             await userRef.set({"svip": true},{merge:true});
         } else {
+            console.log("Update balance!");
             if(user.data().balance != undefined) {
                 await userRef.set({"balance": user.data().balance + payDoc.data().cmnum},{merge:true});
             }
