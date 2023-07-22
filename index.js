@@ -69,11 +69,16 @@ const s3 = new AWS.S3({
 });
 
 var jwt = require("jsonwebtoken");
+
 var bodyParser = require('body-parser')
+
 // create application/json parser
 var jsonParser = bodyParser.json()
+
 // create application/x-www-form-urlencoded parser
 var urlencodedParser = bodyParser.urlencoded({ extended: false })
+
+app.use(urlencodedParser);
 
 require('dotenv').config()
 //console.log(process.env.USRN);
