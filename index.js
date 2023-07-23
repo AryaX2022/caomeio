@@ -1063,19 +1063,24 @@ app.post('/v/afterpayment', async function(request, response) {
     if(request.body.trade_status === "TRADE_SUCCESS") {
         let payDoc = await paymentRef.get();
 
-        const userRef = db.collection(T_USERS).doc(payDoc.data().username);
-        const user = await userRef.get();
+        if(payDoc.data().status === "WAIT_BUYER_PAY") {
 
-        //购买了商品6: 无限。SVIP。
-        if(payDoc.data().prd == 6) {
-            await userRef.set({"svip": true},{merge:true});
-        } else {
-            console.log("Update balance!");
-            if(user.data().balance != undefined) {
-                await userRef.set({"balance": user.data().balance + payDoc.data().cmnum},{merge:true});
+            const userRef = db.collection(T_USERS).doc(payDoc.data().username);
+            const user = await userRef.get();
+
+            //购买了商品6: 无限。SVIP。
+            if(payDoc.data().prd == 6) {
+                console.log("Set svip!");
+                await userRef.set({"svip": true},{merge:true});
+            } else {
+                console.log("Update balance!");
+                if(user.data().balance != undefined) {
+                    await userRef.set({"balance": user.data().balance + payDoc.data().cmnum},{merge:true});
+                }
+                await db.collection(T_CONSUMES).add({type: 1, username: payDoc.data().username, desc: "用户购买", createtime: new Date(), price: payDoc.data().cmnum});
             }
-            await db.collection(T_CONSUMES).add({type: 1, username: payDoc.data().username, desc: "用户购买", createtime: new Date(), price: payDoc.data().cmnum});
         }
+
 
     }
 
