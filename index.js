@@ -1046,24 +1046,22 @@ app.post('/v/querypayment', jsonParser, async function(request, response) {
 app.post('/v/afterpayment', async function(request, response) {
     //console.log(request.body);
     console.log(request.body.out_trade_no);
-    console.log(request.body.trade_status);
-    console.log(request.body.total_amount);
-    console.log(request.body.buyer_pay_amount);
-    console.log(request.body.gmt_create);
-    console.log(request.body.gmt_payment);
+    // console.log(request.body.trade_status);
+    // console.log(request.body.total_amount);
+    // console.log(request.body.buyer_pay_amount);
+    // console.log(request.body.gmt_create);
+    // console.log(request.body.gmt_payment);
 
     const paymentRef = db.collection(T_PAYMENTS).doc(request.body.out_trade_no);
 
-    await paymentRef.set({
-        status: request.body.trade_status,
-        gmt_payment: request.body.gmt_payment,
-        buyer_pay_amount: request.body.buyer_pay_amount
-    }, {merge: true});
-
     if(request.body.trade_status === "TRADE_SUCCESS") {
         let payDoc = await paymentRef.get();
-
         if(payDoc.data().status === "WAIT_BUYER_PAY") {
+            await paymentRef.set({
+                status: request.body.trade_status,
+                gmt_payment: request.body.gmt_payment,
+                buyer_pay_amount: request.body.buyer_pay_amount
+            }, {merge: true});
 
             const userRef = db.collection(T_USERS).doc(payDoc.data().username);
             const user = await userRef.get();
@@ -1079,6 +1077,7 @@ app.post('/v/afterpayment', async function(request, response) {
                 }
                 await db.collection(T_CONSUMES).add({type: 1, username: payDoc.data().username, desc: "用户购买", createtime: new Date(), price: payDoc.data().cmnum});
             }
+
         }
 
 
