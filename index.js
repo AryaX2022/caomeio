@@ -53,9 +53,11 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
+const s3accessId = "jxxzxuvebghqfg73o6lkef4nr3na";
+
 const s3Client = new S3Client({
     credentials: {
-        accessKeyId: "jxxpimx7rapd6eg6rqgimfmvh6za",
+        accessKeyId: s3accessId,
         secretAccessKey: process.env.S3_KEY,
     },
     region: "us-1",
@@ -63,7 +65,7 @@ const s3Client = new S3Client({
 });
 
 const s3 = new AWS.S3({
-    accessKeyId: "jxxpimx7rapd6eg6rqgimfmvh6za",
+    accessKeyId: s3accessId,
     secretAccessKey: process.env.S3_KEY,
     endpoint: "https://gateway.storjshare.io",
 });
@@ -118,14 +120,14 @@ const { collection, DocumentData, addDoc, getDocs, setDoc, doc, updateDoc, incre
 // const T_PID = 'vpid';
 // const T_USERS = 'vusers';
 
-const PAGE_SIZE = 6;
-const T_COMMENTS = 'vcomments0';
-const T_CONSUMES = 'vconsumes0';
+const PAGE_SIZE = 20;
+const T_COMMENTS = 'vcomments';
+const T_CONSUMES = 'vconsumes';
 
-const T_ITEMS = 'vitems0';
-const T_PID = 'vpid0';
-const T_USERS = 'vusers0';
-const T_PAYMENTS = 'vpayment0';
+const T_ITEMS = 'vitems';
+const T_PID = 'vpid';
+const T_USERS = 'vusers';
+const T_PAYMENTS = 'vpayment';
 
 app.get('/', (req, res) => {
     console.log("Good");
@@ -150,26 +152,11 @@ async function getCurrentPid() {
     const data = doc.data();
     console.log(data);
     return data.pid;
-
-    // try {
-    //     const pid = fs.readFileSync('pid.txt', 'utf8');
-    //     return pid;
-    // } catch (e) {
-    //     console.error(e);
-    // }
 }
 
 async function setCurrentPid() {
     const docRef = db.collection(T_PID).doc("current");
     await docRef.update({"pid": FieldValue.increment(1)});
-
-    // try {
-    //     //fs.writeFileSync('next.txt',next)
-    //     fs.writeFileSync('pid.txt', pid)
-    // } catch (e) {
-    //     console.error(e);
-    // }
-
 }
 
 function getFilesSortedByModifiedDate(directoryPath) {
@@ -498,7 +485,7 @@ async function findUrlByKey(key, expire) {
 }
 
 app.post("/v/getByKey", jsonParser, async function (req, res) {
-    let url = await findUrlByKey(req.body.key, 60);
+    let url = await findUrlByKey(req.body.key, 600);
     res.json({ret: url});
 })
 
@@ -549,7 +536,7 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
         //let num = 20;
         console.log(num);
 
-        data = await getMediaById(items[num].id);
+        data = await getMediaById(items[num].id, 0);
 
     } else {
         let currentPid = await getCurrentPid();
@@ -561,7 +548,7 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
             if (!querySnapshot.empty) {
                 let doc = querySnapshot.docs[0];
                 //console.log(doc.id);
-                data = await getMediaById(doc.id);
+                data = await getMediaById(doc.id, 0);
             } else {
                 console.log("No document corresponding to the query!");
             }
@@ -571,7 +558,7 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
     response.json(data);
 })
 
-async function getMediaById(id) {
+async function getMediaById(id, src) {
     let startT = Date.now();
 
     const doc = await db.collection(T_ITEMS).doc(id).get();
@@ -593,6 +580,13 @@ async function getMediaById(id) {
         if (data.price != undefined) {
             data.presecondsUrl = await findUrlByKey(data.filename.replace("_", "_p_"), 60);
         }
+
+        const itemRef = db.collection(T_ITEMS).doc(id);
+        if(src == 0) {
+            itemRef.update({"stats.watches_mb": FieldValue.increment(1)});
+        } else {
+            itemRef.update({"stats.watches_pc": FieldValue.increment(1)});
+        }
     }
 
     let endT = Date.now();
@@ -602,7 +596,7 @@ async function getMediaById(id) {
 
 //根据id获取doc，同时查询url
 app.post("/v/getMediaById", jsonParser, async function(request,response){
-    response.json(await getMediaById(request.body.id));
+    response.json(await getMediaById(request.body.id, 1));
 })
 
 // app.post("/v/download", jsonParser, async function(request,response){
@@ -1002,7 +996,7 @@ app.post('/auth/signup', jsonParser, async function (request, response) {
 
         const res = await db.collection(T_USERS).doc(request.body.username).set(request.body);
 
-        await db.collection(T_CONSUMES).add({type: 1, username: request.body.username, desc: "新用户注册，赠送", createtime: new Date(), price: initPrice});
+        await db.collection(T_CONSUMES).add({type: 1, username: request.body.username, desc: "新用户注册奖励", createtime: new Date(), price: initPrice});
 
         response.json({ret:1, message:'注册成功'});
 
@@ -1044,6 +1038,7 @@ app.post('/v/querypayment', jsonParser, async function(request, response) {
 })
 
 app.post('/v/afterpayment', async function(request, response) {
+    //验证签名，防止伪造：TODO
     //console.log(request.body);
     console.log(request.body.out_trade_no);
     // console.log(request.body.trade_status);
@@ -1054,6 +1049,7 @@ app.post('/v/afterpayment', async function(request, response) {
 
     const paymentRef = db.collection(T_PAYMENTS).doc(request.body.out_trade_no);
 
+    //支付成功后，更新数据：仅执行一次。
     if(request.body.trade_status === "TRADE_SUCCESS") {
         let payDoc = await paymentRef.get();
         if(payDoc.data().status === "WAIT_BUYER_PAY") {
@@ -1578,7 +1574,7 @@ app.post("/v/turnfree2priced", jsonParser, async function(request, response) {
 
     //把stream buffer放到内存，后续多次使用 buffer->stream，转mp4/gif/jpg
 
-    let watermarkFilename = filename.replace("_","@");
+    //let watermarkFilename = filename.replace("_","@");
 
     if(price != undefined && price > 0) {
         let secondsFilename = filename.replace("_","_p_");
@@ -1586,9 +1582,29 @@ app.post("/v/turnfree2priced", jsonParser, async function(request, response) {
         //截取前几秒，put到s3
         ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds);
     }
-    ffmpeg2WaMp4(signedUrl, watermarkFilename);
+
+    //ffmpeg2WaMp4(signedUrl, watermarkFilename);
 
     console.log("Here!");
+
+    response.json({ret:1});
+
+})
+
+app.post("/v/turnpriced2free", jsonParser, async function(request, response) {
+
+    //更新
+    const docRef = db.collection(T_ITEMS).doc(request.body.ids[0]);
+    await docRef.update({preseconds:FieldValue.delete(), price:FieldValue.delete()});
+
+    const doc = await docRef.get();
+    let filename = doc.data().filename;
+    console.log(filename);
+
+    let secondsFilename = filename.replace("_","_p_");
+    s3del(secondsFilename);
+
+    console.log("Done!");
 
     response.json({ret:1});
 
