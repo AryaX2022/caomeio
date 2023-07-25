@@ -114,16 +114,16 @@ const db = getFirestore();
 
 const { collection, DocumentData, addDoc, getDocs, setDoc, doc, updateDoc, increment, FieldValue, Timestamp, serverTimestamp  } = require('firebase-admin/firestore');
 
-// const T_COMMENTS = 'vcomments';
-// const T_CONSUMES = 'vconsumes';
-// const T_ITEMS = 'vitems';
-// const T_PID = 'vpid';
-// const T_USERS = 'vusers';
-
 const PAGE_SIZE = 20;
+// const T_COMMENTS = 'vcomments0';
+// const T_CONSUMES = 'vconsumes0';
+// const T_ITEMS = 'vitems0';
+// const T_PID = 'vpid0';
+// const T_USERS = 'vusers0';
+// const T_PAYMENTS = 'vpayment0';
+
 const T_COMMENTS = 'vcomments';
 const T_CONSUMES = 'vconsumes';
-
 const T_ITEMS = 'vitems';
 const T_PID = 'vpid';
 const T_USERS = 'vusers';
