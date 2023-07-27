@@ -54,11 +54,30 @@ const fs = require('fs');
 const path = require('path');
 
 const s3accessId = "jxxzxuvebghqfg73o6lkef4nr3na";
-
 const s3Client = new S3Client({
     credentials: {
         accessKeyId: s3accessId,
         secretAccessKey: process.env.S3_KEY,
+    },
+    region: "us-1",
+    endpoint: "https://gateway.storjshare.io",
+});
+
+const s3accessId_x6983299outlook = "jwkbwe76fojscq6hkeqrwpizn6eq";
+const s3Client_x6983299outlook = new S3Client({
+    credentials: {
+        accessKeyId: s3accessId_x6983299outlook,
+        secretAccessKey: process.env.S3_KEY_x6983299outlook,
+    },
+    region: "us-1",
+    endpoint: "https://gateway.storjshare.io",
+});
+
+const s3accessId_m1560 = "jwkyvapsqlccttmgy6ozv66yscqq";
+const s3Client_m1560 = new S3Client({
+    credentials: {
+        accessKeyId: s3accessId_m1560,
+        secretAccessKey: process.env.S3_KEY_m1560,
     },
     region: "us-1",
     endpoint: "https://gateway.storjshare.io",
@@ -472,20 +491,35 @@ function isAdmin(request) {
 }
 
 
-async function findUrlByKey(key, expire) {
+async function findUrlByKey(s3, key, expire) {
     const params = {
         Bucket: 'caomeio',
         Key: key
     }
 
     let command = new GetObjectCommand(params);
-    const url = await getSignedUrl(s3Client, command, {expiresIn: expire});
+
+    let storjS3Client = s3;
+    if(storjS3Client == null) {
+        let num = Math.floor(Math.random() * 10);
+        if(num < 2) {
+            storjS3Client = s3Client;
+        }
+        if(num >= 2 && num < 6) {
+            storjS3Client = s3Client_x6983299outlook;
+        }
+        if(num >= 6) {
+            storjS3Client = s3Client_m1560;
+        }
+    }
+
+    const url = await getSignedUrl(storjS3Client, command, {expiresIn: expire});
     //console.log(url);
     return url;
 }
 
 app.post("/v/getByKey", jsonParser, async function (req, res) {
-    let url = await findUrlByKey(req.body.key, 600);
+    let url = await findUrlByKey(s3Client, req.body.key, 600);
     res.json({ret: url});
 })
 
@@ -575,10 +609,15 @@ async function getMediaById(id, src) {
             data.vcomments.push(c.data());
         });
 
-        data.mediaUrl = await findUrlByKey(data.filename, 60);
-        data.downloadUrl = await findUrlByKey(data.filename.replace('_', '@'), 60);
+        //管理员批量上传的: 由于同步到了几个S3，因此这里 load balance
+        //UI上传的：只是上传到了1个S3
+        //TODO..
+
+        data.mediaUrl = await findUrlByKey(null, data.filename, 60);
+        data.downloadUrl = await findUrlByKey(null, data.filename.replace('_', '@'), 60);
+
         if (data.price != undefined) {
-            data.presecondsUrl = await findUrlByKey(data.filename.replace("_", "_p_"), 60);
+            data.presecondsUrl = await findUrlByKey(s3Client, data.filename.replace("_", "_p_"), 60);
         }
 
         const itemRef = db.collection(T_ITEMS).doc(id);
@@ -1526,7 +1565,7 @@ app.post("/v/afterupload", jsonParser, async function(request, response) {
 
     console.log(filename);
     //let signedUrl = request.body.url;
-    let signedUrl = await findUrlByKey(filename, 600);
+    let signedUrl = await findUrlByKey(s3Client, filename, 600);
 
     //let signedUrl = "https://caomeio.gateway.storjshare.io/_goodgirl-123456789.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=jxxpimx7rapd6eg6rqgimfmvh6za%2F20230626%2Fus-1%2Fs3%2Faws4_request&X-Amz-Date=20230626T130037Z&X-Amz-Expires=6000&X-Amz-Signature=68d5abaaa2549839a8796017be3636f7896842c18d50bab09bc2e7fd647df9ef&X-Amz-SignedHeaders=host&x-id=GetObject";
 
@@ -1568,13 +1607,11 @@ app.post("/v/turnfree2priced", jsonParser, async function(request, response) {
     console.log(filename);
 
     //let signedUrl = request.body.url;
-    let signedUrl = await findUrlByKey(filename, 600);
+    let signedUrl = await findUrlByKey(s3Client, filename, 600);
 
     //let signedUrl = "https://caomeio.gateway.storjshare.io/_goodgirl-123456789.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=jxxpimx7rapd6eg6rqgimfmvh6za%2F20230626%2Fus-1%2Fs3%2Faws4_request&X-Amz-Date=20230626T130037Z&X-Amz-Expires=6000&X-Amz-Signature=68d5abaaa2549839a8796017be3636f7896842c18d50bab09bc2e7fd647df9ef&X-Amz-SignedHeaders=host&x-id=GetObject";
 
     //把stream buffer放到内存，后续多次使用 buffer->stream，转mp4/gif/jpg
-
-    //let watermarkFilename = filename.replace("_","@");
 
     if(price != undefined && price > 0) {
         let secondsFilename = filename.replace("_","_p_");
@@ -1582,8 +1619,6 @@ app.post("/v/turnfree2priced", jsonParser, async function(request, response) {
         //截取前几秒，put到s3
         ffmpeg2SecondsMp4(signedUrl, secondsFilename, seconds);
     }
-
-    //ffmpeg2WaMp4(signedUrl, watermarkFilename);
 
     console.log("Here!");
 
