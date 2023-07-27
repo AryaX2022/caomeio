@@ -578,7 +578,6 @@ app.post("/v/getMediaRandomly", jsonParser, async function(request,response) {
         //let num = request.body.pid != undefined ? request.body.pid : currentPid;
         //console.log("随机数:" + num.toString());
         const docs = await db.collection(T_ITEMS).where("pid","<",num).orderBy("pid","desc").limit(1).get().then(async querySnapshot => {
-
             if (!querySnapshot.empty) {
                 let doc = querySnapshot.docs[0];
                 //console.log(doc.id);
@@ -603,18 +602,16 @@ async function getMediaById(id, src) {
 
         data.id = doc.id;
 
-        data.vcomments = [];
-        const comments = await db.collection(T_COMMENTS).where("itemId", "==", data.id).orderBy("createtime", "desc").get();
-        comments.forEach(c => {
-            data.vcomments.push(c.data());
-        });
-
         //管理员批量上传的: 由于同步到了几个S3，因此这里 load balance
         //UI上传的：只是上传到了1个S3
-        //TODO..
 
-        data.mediaUrl = await findUrlByKey(null, data.filename, 60);
-        data.downloadUrl = await findUrlByKey(null, data.filename.replace('_', '@'), 60);
+        if(data.byuser != undefined && data.byuser != null) {
+            data.mediaUrl = await findUrlByKey(s3Client, data.filename, 60);
+            data.downloadUrl = await findUrlByKey(s3Client, data.filename.replace('_', '@'), 60);
+        } else {
+            data.mediaUrl = await findUrlByKey(null, data.filename, 60);
+            data.downloadUrl = await findUrlByKey(null, data.filename.replace('_', '@'), 60);
+        }
 
         if (data.price != undefined) {
             data.presecondsUrl = await findUrlByKey(s3Client, data.filename.replace("_", "_p_"), 60);
@@ -653,6 +650,14 @@ app.post("/v/getMediaById", jsonParser, async function(request,response){
 //     response.json({ret:url});
 // })
 
+app.post("/v/getComments", jsonParser, async function(request,response){
+    let vcomments = [];
+    const comments = await db.collection(T_COMMENTS).where("itemId", "==", request.body.id).orderBy("createtime", "desc").get();
+    comments.forEach(c => {
+        vcomments.push(c.data());
+    });
+    response.json(vcomments);
+})
 
 //分页查询
 app.post("/v/getMediaPaged", jsonParser, async function(request, response) {
