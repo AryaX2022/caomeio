@@ -523,6 +523,23 @@ app.post("/v/getByKey", jsonParser, async function (req, res) {
     res.json({ret: url});
 })
 
+async function getMediaByTag(tag) {
+    const vitems = await db.collection(T_ITEMS).where('tags', 'array-contains', tag).orderBy("createtime", "desc").get();
+    vitems.forEach(doc => {
+        //如果不是管理员，跳过status为0的。TODO
+        let data = doc.data();
+        data.id = doc.id;
+
+        if(data.status != undefined && data.status == 0) {
+            if(admin) {
+                tagObjects[tag].push(data);
+            }
+        } else {
+            tagObjects[tag].push(data);
+        }
+
+    })
+}
 
 //根据tag获取，可缓存
 app.post("/v/getMediaByTag", jsonParser, async function(request, response) {
@@ -531,21 +548,7 @@ app.post("/v/getMediaByTag", jsonParser, async function(request, response) {
     let admin = isAdmin(request);
     if (tagObjects[tag].length == 0) {
         console.log("Fetch from DB");
-        const vitems = await db.collection(T_ITEMS).where('tags', 'array-contains', tag).orderBy("createtime", "desc").get();
-        vitems.forEach(doc => {
-            //如果不是管理员，跳过status为0的。TODO
-            let data = doc.data();
-            data.id = doc.id;
-
-            if(data.status != undefined && data.status == 0) {
-                if(admin) {
-                    tagObjects[tag].push(data);
-                }
-            } else {
-                tagObjects[tag].push(data);
-            }
-
-        })
+        await getMediaByTag(tag);
     }
     response.json(tagObjects[request.body.tag]);
 })
