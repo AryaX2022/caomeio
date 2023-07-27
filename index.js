@@ -1615,7 +1615,7 @@ app.post("/v/turnfree2priced", jsonParser, async function(request, response) {
     console.log(filename);
 
     //let signedUrl = request.body.url;
-    let signedUrl = await findUrlByKey(s3Client, filename, 600);
+    let signedUrl = await findUrlByKey(null, filename, 600);
 
     //let signedUrl = "https://caomeio.gateway.storjshare.io/_goodgirl-123456789.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=jxxpimx7rapd6eg6rqgimfmvh6za%2F20230626%2Fus-1%2Fs3%2Faws4_request&X-Amz-Date=20230626T130037Z&X-Amz-Expires=6000&X-Amz-Signature=68d5abaaa2549839a8796017be3636f7896842c18d50bab09bc2e7fd647df9ef&X-Amz-SignedHeaders=host&x-id=GetObject";
 
